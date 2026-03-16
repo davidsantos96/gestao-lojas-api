@@ -1,0 +1,252 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Prisma Schema — Sistema de Controle de Lojas
+// Módulos: Estoque + Financeiro
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SHARED / TENANT
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Empresa / loja (base do multi-tenancy)
+model Empresa {
+  id        String   @id @default(cuid())
+  nome      String
+  cnpj      String?  @unique
+  email     String?
+  telefone  String?
+  ativo     Boolean  @default(true)
+  criadoEm  DateTime @default(now())
+
+  usuarios  Usuario[]
+  produtos  Produto[]
+  movimentos MovimentacaoEstoque[]
+  contasPagar ContaPagar[]
+  contasReceber ContaReceber[]
+  lancamentos Lancamento[]
+  categoriasDespesa CategoriaDespesa[]
+
+  @@map("empresas")
+}
+
+/// Usuário interno da empresa
+model Usuario {
+  id        String   @id @default(cuid())
+  empresaId String
+  nome      String
+  email     String
+  perfil    Perfil   @default(OPERADOR)
+  ativo     Boolean  @default(true)
+  criadoEm  DateTime @default(now())
+
+  empresa   Empresa  @relation(fields: [empresaId], references: [id])
+
+  movimentos    MovimentacaoEstoque[]
+  lancamentos   Lancamento[]
+
+  @@unique([empresaId, email])
+  @@index([empresaId])
+  @@map("usuarios")
+}
+
+enum Perfil {
+  ADMIN
+  GERENTE
+  OPERADOR
+  FINANCEIRO
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MÓDULO: ESTOQUE
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Produto cadastrado na loja
+model Produto {
+  id         String    @id @default(cuid())
+  empresaId  String
+  sku        String                        // código interno (ex: CAM-001)
+  nome       String
+  categoria  CategoriaEstoque
+  cor        String?                       // ex: "Azul", "Vinho", "#1565c0"
+  preco      Decimal   @db.Decimal(10, 2)  // preço de venda
+  custo      Decimal   @db.Decimal(10, 2)  // custo de aquisição
+  estoque    Int       @default(0)         // saldo atual (derivado das movimentações)
+  minimo     Int       @default(0)         // alerta de estoque mínimo
+  ativo      Boolean   @default(true)
+  criadoEm  DateTime   @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  empresa    Empresa   @relation(fields: [empresaId], references: [id])
+  movimentos MovimentacaoEstoque[]
+
+  @@unique([empresaId, sku])
+  @@index([empresaId])
+  @@index([empresaId, categoria])
+  @@index([empresaId, ativo])
+  @@map("produtos")
+}
+
+enum CategoriaEstoque {
+  VESTUARIO
+  CALCADOS
+  ACESSORIOS
+}
+
+/// Registro de movimentação de estoque (entrada, saída, ajuste)
+model MovimentacaoEstoque {
+  id          String          @id @default(cuid())
+  empresaId   String
+  produtoId   String
+  usuarioId   String?
+  tipo        TipoMovimento
+  quantidade  Int                          // positivo para entrada/ajuste+, negativo para saída/ajuste-
+  estoqueAntes Int                         // snapshot do saldo antes da movimentação
+  estoqueDepois Int                        // snapshot do saldo depois
+  origem      String?                      // ex: "Venda #4821", "Fornecedor A", "Inventário"
+  obs         String?
+  criadoEm   DateTime         @default(now())
+
+  empresa    Empresa  @relation(fields: [empresaId], references: [id])
+  produto    Produto  @relation(fields: [produtoId], references: [id])
+  usuario    Usuario? @relation(fields: [usuarioId], references: [id])
+
+  @@index([empresaId])
+  @@index([empresaId, produtoId])
+  @@index([empresaId, tipo])
+  @@index([criadoEm])
+  @@map("movimentacoes_estoque")
+}
+
+enum TipoMovimento {
+  ENTRADA
+  SAIDA
+  AJUSTE
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MÓDULO: FINANCEIRO
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Categoria de despesa configurável por empresa
+model CategoriaDespesa {
+  id        String   @id @default(cuid())
+  empresaId String
+  nome      String                         // ex: "Fornecedor", "Aluguel"
+  cor       String?                        // cor para visualização
+  ativo     Boolean  @default(true)
+
+  empresa   Empresa  @relation(fields: [empresaId], references: [id])
+  contas    ContaPagar[]
+  lancamentos Lancamento[]
+
+  @@unique([empresaId, nome])
+  @@index([empresaId])
+  @@map("categorias_despesa")
+}
+
+/// Conta a pagar
+model ContaPagar {
+  id          String         @id @default(cuid())
+  empresaId   String
+  categoriaId String?
+  descricao   String
+  valor       Decimal        @db.Decimal(10, 2)
+  vencimento  DateTime
+  pagoEm      DateTime?
+  status      StatusConta    @default(PENDENTE)
+  obs         String?
+  criadoEm   DateTime        @default(now())
+  atualizadoEm DateTime      @updatedAt
+
+  empresa    Empresa          @relation(fields: [empresaId], references: [id])
+  categoria  CategoriaDespesa? @relation(fields: [categoriaId], references: [id])
+  anexos     AnexoConta[]
+
+  @@index([empresaId])
+  @@index([empresaId, status])
+  @@index([empresaId, vencimento])
+  @@map("contas_pagar")
+}
+
+/// Conta a receber
+model ContaReceber {
+  id          String         @id @default(cuid())
+  empresaId   String
+  descricao   String
+  cliente     String?
+  valor       Decimal        @db.Decimal(10, 2)
+  vencimento  DateTime
+  recebidoEm  DateTime?
+  status      StatusConta    @default(PENDENTE)
+  obs         String?
+  criadoEm   DateTime        @default(now())
+  atualizadoEm DateTime      @updatedAt
+
+  empresa    Empresa  @relation(fields: [empresaId], references: [id])
+
+  @@index([empresaId])
+  @@index([empresaId, status])
+  @@index([empresaId, vencimento])
+  @@map("contas_receber")
+}
+
+enum StatusConta {
+  PENDENTE
+  PAGO
+  RECEBIDO
+  VENCIDO
+  CANCELADO
+}
+
+/// Lançamento financeiro avulso (receita ou despesa)
+model Lancamento {
+  id          String           @id @default(cuid())
+  empresaId   String
+  usuarioId   String?
+  categoriaId String?
+  tipo        TipoLancamento
+  descricao   String
+  valor       Decimal          @db.Decimal(10, 2)
+  data        DateTime         // data de competência
+  obs         String?
+  criadoEm   DateTime          @default(now())
+  atualizadoEm DateTime        @updatedAt
+
+  empresa    Empresa           @relation(fields: [empresaId], references: [id])
+  usuario    Usuario?          @relation(fields: [usuarioId], references: [id])
+  categoria  CategoriaDespesa? @relation(fields: [categoriaId], references: [id])
+
+  @@index([empresaId])
+  @@index([empresaId, tipo])
+  @@index([empresaId, data])
+  @@map("lancamentos")
+}
+
+enum TipoLancamento {
+  RECEITA
+  DESPESA
+}
+
+/// Anexo de documento vinculado a uma conta a pagar
+model AnexoConta {
+  id          String   @id @default(cuid())
+  contaPagarId String
+  nome        String                         // nome original do arquivo
+  tipo        String                         // MIME type: application/pdf, image/jpeg...
+  tamanho     Int                            // bytes
+  url         String                         // caminho no storage (S3, local, etc.)
+  criadoEm   DateTime  @default(now())
+
+  conta      ContaPagar @relation(fields: [contaPagarId], references: [id], onDelete: Cascade)
+
+  @@index([contaPagarId])
+  @@map("anexos_conta")
+}
