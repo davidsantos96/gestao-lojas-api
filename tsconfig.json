@@ -10,15 +10,15 @@
     "sourceMap":                    true,
     "outDir":                       "./dist",
     "rootDir":                      "./src",
-    "incremental":                  true,
+    "incremental":                  false,
     "skipLibCheck":                 true,
     "strictNullChecks":             false,
     "noImplicitAny":                false,
     "strictBindCallApply":          false,
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch":   false,
-    "types":                        ["jest", "node"]
+    "types":                        ["node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "test"]
+  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts"]
 }

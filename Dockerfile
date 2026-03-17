@@ -2,21 +2,20 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY package*.json nest-cli.json tsconfig.json ./
 RUN npm ci --include=dev
 
-COPY . .
-
+COPY prisma ./prisma
 RUN PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 npx prisma generate
 
-RUN npx tsc -p tsconfig.json
+COPY src ./src
+RUN npx nest build
 
-# Mostra toda a estrutura do dist para identificar o path correto
-RUN find /app/dist -name "main.js" 2>/dev/null || echo "main.js nao encontrado"
+# Mostra onde o main.js foi gerado
+RUN find /app/dist -name "main.js" && echo "=== build ok ==="
 
 RUN npm prune --omit=dev
 
 EXPOSE 3000
 
-# Usa o path correto conforme a estrutura gerada pelo tsc
-CMD ["node", "/app/dist/src/main"]
+CMD ["node", "dist/main"]
