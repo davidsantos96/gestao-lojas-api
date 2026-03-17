@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core'
 import { ValidationPipe } from '@nestjs/common'
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger'
 import { AppModule } from './app.module'
+import { AllExceptionsFilter } from './common/filters/http-exception.filter'
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)
@@ -16,12 +17,15 @@ async function bootstrap() {
   // ── Global prefix ─────────────────────────────────────────────────────────
   app.setGlobalPrefix('api')
 
+  // ── Filtro global de erros ────────────────────────────────────────────────
+  app.useGlobalFilters(new AllExceptionsFilter())
+
   // ── Validation pipe ───────────────────────────────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,          // remove campos não declarados no DTO
+      whitelist: true,
       forbidNonWhitelisted: true,
-      transform: true,          // converte tipos automaticamente (string → number)
+      transform: true,
       transformOptions: { enableImplicitConversion: true },
     }),
   )
@@ -35,8 +39,7 @@ async function bootstrap() {
     .addTag('financeiro')
     .build()
 
-  const document = SwaggerModule.createDocument(app, config)
-  SwaggerModule.setup('docs', app, document)
+  SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config))
 
   const port = process.env.PORT || 3000
   await app.listen(port)
