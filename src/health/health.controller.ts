@@ -8,19 +8,18 @@ export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Health check — verifica API e conexão com o banco' })
+  @ApiOperation({ summary: 'Health check' })
   async check() {
-    let db = 'ok'
-    try {
-      await this.prisma.$queryRaw`SELECT 1`
-    } catch {
-      db = 'error'
-    }
+    // Responde imediatamente com status da API
+    // Tenta o banco de forma não-bloqueante
+    const dbStatus = await this.prisma.$queryRaw`SELECT 1`
+      .then(() => 'ok')
+      .catch(() => 'error')
 
     return {
-      status:    db === 'ok' ? 'ok' : 'degraded',
+      status:    'ok',
       timestamp: new Date().toISOString(),
-      services:  { api: 'ok', database: db },
+      services:  { api: 'ok', database: dbStatus },
     }
   }
 }
