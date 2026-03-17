@@ -8,9 +8,13 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule)
 
   // ── CORS ──────────────────────────────────────────────────────────────────
+  const origins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+    .split(',')
+    .map(o => o.trim())
+
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    origin:      origins,
+    methods:     ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     credentials: true,
   })
 
@@ -23,10 +27,10 @@ async function bootstrap() {
   // ── Validation pipe ───────────────────────────────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: true },
+      whitelist:             true,
+      forbidNonWhitelisted:  true,
+      transform:             true,
+      transformOptions:      { enableImplicitConversion: true },
     }),
   )
 
@@ -37,14 +41,17 @@ async function bootstrap() {
     .setVersion('1.0')
     .addTag('estoque')
     .addTag('financeiro')
+    .addTag('health')
     .build()
 
   SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config))
 
+  // ── Listen — Railway injeta PORT dinamicamente ────────────────────────────
   const port = process.env.PORT || 3000
-  await app.listen(port)
-  console.log(`🚀 API rodando em http://localhost:${port}/api`)
-  console.log(`📖 Swagger em   http://localhost:${port}/docs`)
+  await app.listen(port, '0.0.0.0')
+
+  console.log(`🚀 API rodando em http://0.0.0.0:${port}/api`)
+  console.log(`📖 Swagger em   http://0.0.0.0:${port}/docs`)
 }
 
 bootstrap()
