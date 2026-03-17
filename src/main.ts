@@ -1,11 +1,16 @@
+import 'reflect-metadata'
 import { NestFactory } from '@nestjs/core'
-import { ValidationPipe } from '@nestjs/common'
+import { ValidationPipe, Logger } from '@nestjs/common'
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger'
 import { AppModule } from './app.module'
 import { AllExceptionsFilter } from './common/filters/http-exception.filter'
 
+const logger = new Logger('Bootstrap')
+
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule)
+  const app = await NestFactory.create(AppModule, {
+    logger: ['log', 'error', 'warn', 'debug'],
+  })
 
   // ── CORS ──────────────────────────────────────────────────────────────────
   const origins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
@@ -27,10 +32,10 @@ async function bootstrap() {
   // ── Validation pipe ───────────────────────────────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist:             true,
-      forbidNonWhitelisted:  true,
-      transform:             true,
-      transformOptions:      { enableImplicitConversion: true },
+      whitelist:            true,
+      forbidNonWhitelisted: true,
+      transform:            true,
+      transformOptions:     { enableImplicitConversion: true },
     }),
   )
 
@@ -50,8 +55,11 @@ async function bootstrap() {
   const port = process.env.PORT || 3000
   await app.listen(port, '0.0.0.0')
 
-  console.log(`🚀 API rodando em http://0.0.0.0:${port}/api`)
-  console.log(`📖 Swagger em   http://0.0.0.0:${port}/docs`)
+  logger.log(`🚀 API rodando em http://0.0.0.0:${port}/api`)
+  logger.log(`📖 Swagger em   http://0.0.0.0:${port}/docs`)
 }
 
-bootstrap()
+bootstrap().catch(err => {
+  console.error('❌ Falha crítica na inicialização:', err)
+  process.exit(1)
+})
