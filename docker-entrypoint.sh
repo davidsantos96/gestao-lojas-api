@@ -10,8 +10,8 @@ else
 fi
 MIGRATION_DATABASE_URL=$(printf '%s' "$MIGRATION_DATABASE_URL" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
-# psql não aceita parâmetro `schema` na URI (é específico do Prisma)
-MIGRATION_DATABASE_URL_PSQL=$(printf '%s' "$MIGRATION_DATABASE_URL" | sed -E 's/([?&])schema=[^&]*(&?)/\1\2/g; s/[?&]$//; s/\?&/\?/g')
+# psql não aceita parâmetros específicos do Prisma na URI
+MIGRATION_DATABASE_URL_PSQL=$(printf '%s' "$MIGRATION_DATABASE_URL" | sed -E ':a; s/([?&])(schema|pgbouncer|connection_limit|statement_cache_size)=[^&]*(&?)/\1\3/; ta; s/[?&]$//; s/\?&/\?/g')
 
 if [ -z "$MIGRATION_DATABASE_URL" ]; then
   echo "[fatal] DATABASE_URL/DATABASE_DIRECT_URL não definida"
