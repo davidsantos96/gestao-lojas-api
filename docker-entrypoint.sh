@@ -1,7 +1,13 @@
 #!/bin/sh
 set -e
 
-MIGRATION_DATABASE_URL="${DATABASE_DIRECT_URL:-$DATABASE_URL}"
+if [ -n "$MIGRATION_DATABASE_URL" ]; then
+  MIGRATION_DATABASE_URL="$MIGRATION_DATABASE_URL"
+elif [ "$MIGRATION_USE_DIRECT_URL" = "true" ]; then
+  MIGRATION_DATABASE_URL="${DATABASE_DIRECT_URL:-$DATABASE_URL}"
+else
+  MIGRATION_DATABASE_URL="${DATABASE_URL:-$DATABASE_DIRECT_URL}"
+fi
 MIGRATION_DATABASE_URL=$(printf '%s' "$MIGRATION_DATABASE_URL" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
 # psql não aceita parâmetro `schema` na URI (é específico do Prisma)

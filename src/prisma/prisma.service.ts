@@ -6,10 +6,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   private readonly logger = new Logger(PrismaService.name)
 
   constructor() {
-    const rawDirectUrl = process.env.DATABASE_DIRECT_URL
+    const preferDirect = process.env.PRISMA_USE_DIRECT_URL === 'true'
     const rawDatabaseUrl = process.env.DATABASE_URL
-    const useDirectUrl = Boolean(rawDirectUrl)
-    const url = PrismaService.buildUrl(useDirectUrl ? rawDirectUrl : rawDatabaseUrl, { usePgBouncer: !useDirectUrl })
+    const rawDirectUrl = process.env.DATABASE_DIRECT_URL
+    const selectedRawUrl = preferDirect ? (rawDirectUrl || rawDatabaseUrl) : (rawDatabaseUrl || rawDirectUrl)
+    const usePgBouncer = !preferDirect
+    const url = PrismaService.buildUrl(selectedRawUrl, { usePgBouncer })
 
     if (!url) {
       throw new Error('DATABASE_URL não definida')
