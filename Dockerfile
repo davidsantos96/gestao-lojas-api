@@ -1,12 +1,14 @@
 FROM node:20-alpine
 
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
 COPY package*.json nest-cli.json tsconfig.json ./
 RUN npm ci --include=dev
 
 COPY prisma ./prisma
-RUN PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 npx prisma generate
+RUN npx prisma generate
 
 COPY src ./src
 RUN npx nest build
