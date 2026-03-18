@@ -2,11 +2,32 @@
 set -e
 
 MIGRATION_DATABASE_URL="${DATABASE_DIRECT_URL:-$DATABASE_URL}"
+MIGRATION_DATABASE_URL=$(printf '%s' "$MIGRATION_DATABASE_URL" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
 if [ -z "$MIGRATION_DATABASE_URL" ]; then
   echo "[fatal] DATABASE_URL/DATABASE_DIRECT_URL não definida"
   exit 1
 fi
+
+case "$MIGRATION_DATABASE_URL" in
+  postgresql://*|postgres://*) ;;
+  *)
+    echo "[fatal] DATABASE_URL inválida para migrations (precisa começar com postgres:// ou postgresql://)"
+    echo "[hint] Verifique se a variável no Railway está com valor real e não template literal"
+    exit 1
+    ;;
+esac
+
+case "$MIGRATION_DATABASE_URL" in
+  *'${{'*|*'}}'*)
+    echo "[fatal] DATABASE_URL parece template não resolvido (ex.: \\${{Postgres.DATABASE_URL}})"
+    echo "[hint] No Railway, vincule o serviço Postgres e selecione a variável DATABASE_URL gerada"
+    exit 1
+    ;;
+esac
+
+DB_HOST=$(printf '%s' "$MIGRATION_DATABASE_URL" | sed -E 's#^[a-z]+://([^@/]+@)?([^:/?]+).*$#\2#')
+echo "[info] Migration DB host: $DB_HOST"
 
 # Aplica cada migration SQL em ordem, ignorando as que já foram aplicadas
 apply_migration() {
