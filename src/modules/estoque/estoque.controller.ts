@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Patch, Delete,
-  Param, Body, Query, HttpCode, HttpStatus,
+  Param, Body, Query, Req, HttpCode, HttpStatus,
 } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiHeader } from '@nestjs/swagger'
 import { EstoqueService } from './estoque.service'
@@ -83,8 +83,9 @@ export class EstoqueController {
   registrarMovimentacao(
     @EmpresaId() empresaId: string,
     @Body() dto: CreateMovimentacaoDto,
+    @Req() req: any,
   ) {
-    return this.estoqueService.registrarMovimentacao(empresaId, dto)
+    return this.estoqueService.registrarMovimentacao(empresaId, dto, req.user?.sub)
   }
 
   // ── Resumo / KPIs ─────────────────────────────────────────────────────────

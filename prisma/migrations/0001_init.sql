@@ -29,6 +29,7 @@ CREATE TABLE "usuarios" (
   "empresaId" TEXT        NOT NULL REFERENCES "empresas"("id"),
   "nome"      TEXT        NOT NULL,
   "email"     TEXT        NOT NULL,
+  "senha"     TEXT,
   "perfil"    "Perfil"    NOT NULL DEFAULT 'OPERADOR',
   "ativo"     BOOLEAN     NOT NULL DEFAULT TRUE,
   "criadoEm"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

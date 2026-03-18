@@ -1,6 +1,6 @@
 FROM node:20-slim
 
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y && apt-get install -y openssl postgresql-client && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -20,4 +20,7 @@ RUN npm prune --omit=dev
 
 EXPOSE 3000
 
-CMD ["node", "dist/main"]
+# Aplica migrations SQL pendentes e sobe a API
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+CMD ["./docker-entrypoint.sh"]

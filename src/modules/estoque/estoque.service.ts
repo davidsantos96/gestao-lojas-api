@@ -31,8 +31,10 @@ export class EstoqueService {
         ],
       }),
       // Filtro de status baseado no campo estoque vs mínimo
+      // Nota: Prisma não suporta comparação entre campos (estoque <= minimo),
+      // por isso 'low' retorna todos estoque > 0 e a filtragem exata é feita no frontend.
       ...(status === 'out' && { estoque: 0 }),
-      ...(status === 'low' && { AND: [{ estoque: { gt: 0 } }, { estoque: { lte: { _ref: 'minimo' } as any } }] }),
+      ...(status === 'low' && { estoque: { gt: 0 } }),
       ...(status === 'ok'  && { estoque: { gt: 0 } }),
     }
 
