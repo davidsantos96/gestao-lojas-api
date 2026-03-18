@@ -35,6 +35,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
         message = 'Registro não encontrado.'
       }
 
+    } else if (exception instanceof Prisma.PrismaClientValidationError) {
+      status  = HttpStatus.BAD_REQUEST
+      message = 'Dados inválidos para a operação solicitada.'
+      this.logger.warn(exception.message)
+
     } else if (exception instanceof Error) {
       this.logger.error(exception.message, exception.stack)
     }
