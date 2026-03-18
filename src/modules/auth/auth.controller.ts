@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Req } from '@nestjs/common'
+import { Controller, Post, Get, Body, Req, HttpCode } from '@nestjs/common'
 import { ApiTags, ApiOperation } from '@nestjs/swagger'
 import { AuthService } from './auth.service'
 import { LoginDto } from './dto/login.dto'
@@ -21,5 +21,13 @@ export class AuthController {
   async me(@Req() req: any) {
     // JwtAuthGuard já verificou o token e populou req.user
     return this.authService.me(req.user.sub)
+  }
+
+  @Post('logout')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Encerrar sessão' })
+  logout(@Req() req: any) {
+    const token = req.headers['authorization']?.replace('Bearer ', '')
+    if (token) this.authService.logout(token)
   }
 }

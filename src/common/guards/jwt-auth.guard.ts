@@ -1,13 +1,14 @@
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator'
+import { AuthService } from '../../modules/auth/auth.service'
 import * as jwt from 'jsonwebtoken'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'gestao-lojas-dev-secret-2026'
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(private reflector: Reflector, private authService: AuthService) {}
 
   canActivate(context: ExecutionContext): boolean {
     // Rotas marcadas com @Public() passam sem token
@@ -28,6 +29,9 @@ export class JwtAuthGuard implements CanActivate {
 
     try {
       const payload = jwt.verify(token, JWT_SECRET) as Record<string, any>
+      if (this.authService.isBlacklisted(token)) {
+        throw new UnauthorizedException('Token revogado')
+      }
       // Popula request.user com os dados do JWT (sub, empresaId, perfil, etc.)
       request.user = payload
       return true

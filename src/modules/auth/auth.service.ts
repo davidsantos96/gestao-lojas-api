@@ -10,8 +10,19 @@ const JWT_EXPIRES = '24h'
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name)
+  private readonly blacklist = new Set<string>()
 
   constructor(private prisma: PrismaService) {}
+
+  /** Invalida um token JWT (logout) */
+  logout(token: string): void {
+    this.blacklist.add(token)
+  }
+
+  /** Verifica se o token foi revogado */
+  isBlacklisted(token: string): boolean {
+    return this.blacklist.has(token)
+  }
 
   async login(dto: LoginDto) {
     try {
