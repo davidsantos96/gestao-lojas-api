@@ -36,7 +36,22 @@ case "$MIGRATION_DATABASE_URL" in
 esac
 
 DB_HOST=$(printf '%s' "$MIGRATION_DATABASE_URL" | sed -E 's#^[a-z]+://([^@/]+@)?([^:/?]+).*$#\2#')
+DB_USER=$(printf '%s' "$MIGRATION_DATABASE_URL" | sed -E 's#^[a-z]+://([^:@/]+).*#\1#')
 echo "[info] Migration DB host: $DB_HOST"
+
+case "$DB_HOST" in
+  *pooler.supabase.com)
+    case "$DB_USER" in
+      *.*) ;;
+      *)
+        echo "[fatal] Usuário inválido para Supabase Pooler: $DB_USER"
+        echo "[hint] Use usuário no formato: postgres.<project_ref>"
+        echo "[hint] Exemplo: postgres.vzmrdoaimgxwokzkyyvk"
+        exit 1
+        ;;
+    esac
+    ;;
+esac
 
 # Aplica cada migration SQL em ordem, ignorando as que já foram aplicadas
 apply_migration() {
