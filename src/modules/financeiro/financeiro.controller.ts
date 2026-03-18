@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Patch, Delete,
-  Param, Body, Query, UploadedFile, UseInterceptors,
+  Param, Body, Query, Req, UploadedFile, UseInterceptors,
   HttpCode, HttpStatus,
 } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
@@ -11,7 +11,7 @@ import { FinanceiroService } from './financeiro.service'
 import {
   CreateContaPagarDto, UpdateContaPagarDto, QueryContasPagarDto,
   CreateContaReceberDto, QueryContasReceberDto,
-  CreateLancamentoDto, QueryCashflowDto, QueryDREDto,
+  CreateLancamentoDto, QueryLancamentosDto, QueryCashflowDto, QueryDREDto,
 } from './dto/financeiro.dto'
 import { EmpresaId } from '../../common/decorators/empresa.decorator'
 
@@ -102,8 +102,9 @@ export class FinanceiroController {
   pagarConta(
     @EmpresaId() empresaId: string,
     @Param('id') id: string,
+    @Req() req: any,
   ) {
-    return this.financeiroService.pagarConta(empresaId, id)
+    return this.financeiroService.pagarConta(empresaId, id, req.user?.sub)
   }
 
   @Delete('contas-pagar/:id')
@@ -184,18 +185,29 @@ export class FinanceiroController {
   receberConta(
     @EmpresaId() empresaId: string,
     @Param('id') id: string,
+    @Req() req: any,
   ) {
-    return this.financeiroService.receberConta(empresaId, id)
+    return this.financeiroService.receberConta(empresaId, id, req.user?.sub)
   }
 
   // ── Lançamentos ───────────────────────────────────────────────────────────
+
+  @Get('lancamentos')
+  @ApiOperation({ summary: 'Listar lançamentos com filtros' })
+  listarLancamentos(
+    @EmpresaId() empresaId: string,
+    @Query() query: QueryLancamentosDto,
+  ) {
+    return this.financeiroService.listarLancamentos(empresaId, query)
+  }
 
   @Post('lancamentos')
   @ApiOperation({ summary: 'Registrar lançamento de receita ou despesa' })
   criarLancamento(
     @EmpresaId() empresaId: string,
     @Body() dto: CreateLancamentoDto,
+    @Req() req: any,
   ) {
-    return this.financeiroService.criarLancamento(empresaId, dto)
+    return this.financeiroService.criarLancamento(empresaId, dto, req.user?.sub)
   }
 }

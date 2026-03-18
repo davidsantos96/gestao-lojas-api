@@ -6,7 +6,7 @@ import { StatusConta, TipoLancamento, Prisma } from '@prisma/client'
 import {
   CreateContaPagarDto, UpdateContaPagarDto, QueryContasPagarDto,
   CreateContaReceberDto, UpdateContaReceberDto, QueryContasReceberDto,
-  CreateLancamentoDto, QueryCashflowDto, QueryDREDto,
+  CreateLancamentoDto, QueryLancamentosDto, QueryCashflowDto, QueryDREDto,
 } from './dto/financeiro.dto'
 
 @Injectable()
@@ -83,15 +83,30 @@ export class FinanceiroService {
     return this.formatarContaPagar(conta)
   }
 
-  async pagarConta(empresaId: string, id: string) {
+  async pagarConta(empresaId: string, id: string, usuarioId?: string) {
     const conta = await this.garantirContaPagar(empresaId, id)
     if (conta.status === StatusConta.PAGO)
       throw new BadRequestException('Conta já foi paga.')
-    const atualizada = await this.prisma.contaPagar.update({
-      where: { id },
-      data:  { status: StatusConta.PAGO, pagoEm: new Date() },
-      include: { categoria: { select: { nome: true, cor: true } } },
-    })
+
+    const agora = new Date()
+    const [atualizada] = await this.prisma.$transaction([
+      this.prisma.contaPagar.update({
+        where: { id },
+        data:  { status: StatusConta.PAGO, pagoEm: agora },
+        include: { categoria: { select: { nome: true, cor: true } } },
+      }),
+      this.prisma.lancamento.create({
+        data: {
+          empresaId,
+          usuarioId:   usuarioId ?? null,
+          categoriaId: conta.categoriaId ?? null,
+          tipo:        'DESPESA',
+          descricao:   `Pagamento: ${conta.descricao}`,
+          valor:       conta.valor,
+          data:        agora,
+        },
+      }),
+    ])
     return this.formatarContaPagar(atualizada)
   }
 
@@ -180,20 +195,77 @@ export class FinanceiroService {
     return this.formatarContaReceber(conta)
   }
 
-  async receberConta(empresaId: string, id: string) {
+  async receberConta(empresaId: string, id: string, usuarioId?: string) {
     const conta = await this.garantirContaReceber(empresaId, id)
     if (conta.status === StatusConta.RECEBIDO)
       throw new BadRequestException('Conta já foi recebida.')
-    const atualizada = await this.prisma.contaReceber.update({
-      where: { id },
-      data:  { status: StatusConta.RECEBIDO, recebidoEm: new Date() },
-    })
+
+    const agora = new Date()
+    const [atualizada] = await this.prisma.$transaction([
+      this.prisma.contaReceber.update({
+        where: { id },
+        data:  { status: StatusConta.RECEBIDO, recebidoEm: agora },
+      }),
+      this.prisma.lancamento.create({
+        data: {
+          empresaId,
+          usuarioId: usuarioId ?? null,
+          tipo:      'RECEITA',
+          descricao: `Recebimento: ${conta.descricao}`,
+          valor:     conta.valor,
+          data:      agora,
+        },
+      }),
+    ])
     return this.formatarContaReceber(atualizada)
   }
 
   // ══════════════════════════════════════════════════════════════════════════
   // LANÇAMENTOS
   // ══════════════════════════════════════════════════════════════════════════
+
+  async listarLancamentos(empresaId: string, query: QueryLancamentosDto) {
+    const { tipo, data_de, data_ate, categoria_id, page = 1, limit = 50 } = query
+    const skip = (page - 1) * limit
+
+    const where: Prisma.LancamentoWhereInput = {
+      empresaId,
+      ...(tipo         && { tipo }),
+      ...(categoria_id && { categoriaId: categoria_id }),
+      ...((data_de || data_ate) && {
+        data: {
+          ...(data_de  && { gte: new Date(data_de)  }),
+          ...(data_ate && { lte: new Date(data_ate) }),
+        },
+      }),
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.lancamento.findMany({
+        where,
+        include: { categoria: { select: { nome: true, cor: true } } },
+        orderBy: { data: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.lancamento.count({ where }),
+    ])
+
+    return {
+      data: data.map(l => ({
+        id:         l.id,
+        tipo:       l.tipo,
+        descricao:  l.descricao,
+        valor:      Number(l.valor),
+        data:       l.data.toLocaleDateString('pt-BR'),
+        categoria:  l.categoria?.nome ?? null,
+        cor:        l.categoria?.cor  ?? null,
+        obs:        l.obs,
+        criadoEm:   l.criadoEm,
+      })),
+      total, page, limit,
+    }
+  }
 
   async criarLancamento(empresaId: string, dto: CreateLancamentoDto, usuarioId?: string) {
     const lancamento = await this.prisma.lancamento.create({

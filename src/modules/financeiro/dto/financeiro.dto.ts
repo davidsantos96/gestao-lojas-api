@@ -126,6 +126,33 @@ export class CreateLancamentoDto {
   obs?: string
 }
 
+// ─── Filtros Lançamentos ─────────────────────────────────────────────────────
+export class QueryLancamentosDto {
+  @ApiPropertyOptional({ enum: TipoLancamento })
+  @IsOptional() @IsEnum(TipoLancamento)
+  tipo?: TipoLancamento
+
+  @ApiPropertyOptional({ example: '2026-01-01' })
+  @IsOptional() @IsDateString()
+  data_de?: string
+
+  @ApiPropertyOptional({ example: '2026-12-31' })
+  @IsOptional() @IsDateString()
+  data_ate?: string
+
+  @ApiPropertyOptional({ example: 'clxyz123' })
+  @IsOptional() @IsString()
+  categoria_id?: string
+
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional() @IsInt() @Min(1)
+  page?: number = 1
+
+  @ApiPropertyOptional({ default: 50 })
+  @IsOptional() @IsInt() @Min(1)
+  limit?: number = 50
+}
+
 // ─── Filtros Cashflow / DRE ───────────────────────────────────────────────────
 export class QueryCashflowDto {
   @ApiPropertyOptional({ default: 7, description: 'Últimos N meses' })
