@@ -1,16 +1,16 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common'
+import { createParamDecorator, ExecutionContext, UnauthorizedException } from '@nestjs/common'
 
 /**
- * Extrai o empresaId da request.
- * Por ora usa um header fixo X-Empresa-Id.
- * Quando autenticação JWT for implementada, virá do token.
+ * Extrai o empresaId do usuário autenticado (JWT).
+ * O JwtAuthGuard popula request.user antes desta execução.
  *
  * Uso: @EmpresaId() empresaId: string
  */
 export const EmpresaId = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): string => {
     const request = ctx.switchToHttp().getRequest()
-    // Futuro: return request.user.empresaId
-    return request.headers['x-empresa-id'] || 'empresa-demo'
+    const empresaId = request.user?.empresaId
+    if (!empresaId) throw new UnauthorizedException('Empresa não identificada no token')
+    return empresaId
   },
 )

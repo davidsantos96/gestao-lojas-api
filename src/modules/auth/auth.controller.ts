@@ -1,13 +1,15 @@
-import { Controller, Post, Get, Body, Headers, UnauthorizedException } from '@nestjs/common'
+import { Controller, Post, Get, Body, Req } from '@nestjs/common'
 import { ApiTags, ApiOperation } from '@nestjs/swagger'
 import { AuthService } from './auth.service'
 import { LoginDto } from './dto/login.dto'
+import { Public } from '../../common/decorators/public.decorator'
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  @Public()
   @Post('login')
   @ApiOperation({ summary: 'Autenticar usuário' })
   async login(@Body() dto: LoginDto) {
@@ -16,13 +18,8 @@ export class AuthController {
 
   @Get('me')
   @ApiOperation({ summary: 'Dados do usuário autenticado' })
-  async me(@Headers('authorization') authHeader: string) {
-    if (!authHeader?.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Token não informado')
-    }
-
-    const token = authHeader.replace('Bearer ', '')
-    const decoded = this.authService.verifyToken(token) as any
-    return this.authService.me(decoded.sub)
+  async me(@Req() req: any) {
+    // JwtAuthGuard já verificou o token e populou req.user
+    return this.authService.me(req.user.sub)
   }
 }
