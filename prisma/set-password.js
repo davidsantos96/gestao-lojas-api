@@ -7,24 +7,18 @@ const prisma = new PrismaClient()
 async function main() {
   const senhaHash = await bcrypt.hash('admin123', 10)
 
-  // Atualiza todos os users que não tem senha
-  const users = await prisma.usuario.findMany({ where: { senha: null } })
+  // Busca todos os usuários ativos
+  const users = await prisma.usuario.findMany({ where: { ativo: true } })
 
-  if (users.length === 0) {
-    console.log('Todos os usuários já possuem senha.')
-    // Tenta pelo email específico
-    const admin = await prisma.usuario.findFirst({ where: { email: { contains: 'lojacentro' } } })
-    if (admin) {
-      await prisma.usuario.update({
-        where: { id: admin.id },
-        data: { senha: senhaHash },
-      })
-      console.log(`✓ Senha atualizada para: ${admin.email}`)
-    }
+  // Filtra quem precisa de atualização: sem senha ou hash inválido (não bcrypt)
+  const precisamAtualizar = users.filter(u => !u.senha || !u.senha.startsWith('$2'))
+
+  if (precisamAtualizar.length === 0) {
+    console.log('Todos os usuários já possuem senha bcrypt válida.')
     return
   }
 
-  for (const user of users) {
+  for (const user of precisamAtualizar) {
     await prisma.usuario.update({
       where: { id: user.id },
       data: { senha: senhaHash },

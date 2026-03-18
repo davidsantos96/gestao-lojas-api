@@ -36,8 +36,14 @@ export class AuthService {
         throw new UnauthorizedException('Email ou senha inválidos')
       }
 
-      // Compara hash da senha
-      const senhaValida = await bcrypt.compare(dto.senha, usuario.senha)
+      // Compara hash da senha — bcrypt.compare lança exceção se o hash não for válido
+      let senhaValida = false
+      try {
+        senhaValida = await bcrypt.compare(dto.senha, usuario.senha)
+      } catch {
+        // Hash inválido (não é bcrypt) → trata como credencial incorreta
+        this.logger.warn(`Hash de senha inválido para usuário: ${usuario.email}`)
+      }
       if (!senhaValida) {
         throw new UnauthorizedException('Email ou senha inválidos')
       }
