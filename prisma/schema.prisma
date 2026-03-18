@@ -43,6 +43,7 @@ model Usuario {
   empresaId String
   nome      String
   email     String
+  senha     String?                       // hash bcrypt (opcional até migrar todos users)
   perfil    Perfil   @default(OPERADOR)
   ativo     Boolean  @default(true)
   criadoEm  DateTime @default(now())

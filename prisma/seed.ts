@@ -1,4 +1,5 @@
 import { PrismaClient, CategoriaEstoque, TipoMovimento, StatusConta, TipoLancamento, Perfil } from '@prisma/client'
+import * as bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
@@ -20,18 +21,21 @@ async function main() {
   console.log('✓ Empresa:', empresa.nome)
 
   // ── Usuário ────────────────────────────────────────────────────────────────
+  const senhaHash = await bcrypt.hash('admin123', 10)
+
   const usuario = await prisma.usuario.upsert({
-    where:  { empresaId_email: { empresaId: empresa.id, email: 'ana@lojacentro.com.br' } },
-    update: {},
+    where:  { empresaId_email: { empresaId: empresa.id, email: 'admin@lojacentro.com.br' } },
+    update: { senha: senhaHash },
     create: {
       id:        'usuario-demo',
       empresaId: empresa.id,
       nome:      'Ana Lima',
-      email:     'ana@lojacentro.com.br',
+      email:     'admin@lojacentro.com.br',
+      senha:     senhaHash,
       perfil:    Perfil.ADMIN,
     },
   })
-  console.log('✓ Usuário:', usuario.nome)
+  console.log('✓ Usuário:', usuario.nome, '(email: admin@lojacentro.com.br / senha: admin123)')
 
   // ── Categorias de despesa ──────────────────────────────────────────────────
   const cats = await Promise.all([
