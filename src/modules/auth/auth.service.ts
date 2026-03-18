@@ -18,7 +18,7 @@ export class AuthService {
       include: { empresa: { select: { id: true, nome: true } } },
     })
 
-    if (!usuario) {
+    if (!usuario || !usuario.senha) {
       throw new UnauthorizedException('Email ou senha inválidos')
     }
 
