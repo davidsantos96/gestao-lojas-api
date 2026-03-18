@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common'
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { LoginDto } from './dto/login.dto'
 import * as bcrypt from 'bcryptjs'
@@ -9,47 +9,55 @@ const JWT_EXPIRES = '24h'
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name)
+
   constructor(private prisma: PrismaService) {}
 
   async login(dto: LoginDto) {
-    // Busca usuário pelo email (em qualquer empresa)
-    const usuario = await this.prisma.usuario.findFirst({
-      where: { email: dto.email, ativo: true },
-      include: { empresa: { select: { id: true, nome: true } } },
-    })
+    try {
+      // Busca usuário pelo email (em qualquer empresa)
+      const usuario = await this.prisma.usuario.findFirst({
+        where: { email: dto.email, ativo: true },
+        include: { empresa: { select: { id: true, nome: true } } },
+      })
 
-    if (!usuario || !usuario.senha) {
-      throw new UnauthorizedException('Email ou senha inválidos')
-    }
+      if (!usuario || !usuario.senha) {
+        throw new UnauthorizedException('Email ou senha inválidos')
+      }
 
-    // Compara hash da senha
-    const senhaValida = await bcrypt.compare(dto.senha, usuario.senha)
-    if (!senhaValida) {
-      throw new UnauthorizedException('Email ou senha inválidos')
-    }
+      // Compara hash da senha
+      const senhaValida = await bcrypt.compare(dto.senha, usuario.senha)
+      if (!senhaValida) {
+        throw new UnauthorizedException('Email ou senha inválidos')
+      }
 
-    // Gera JWT
-    const payload = {
-      sub: usuario.id,
-      email: usuario.email,
-      nome: usuario.nome,
-      perfil: usuario.perfil,
-      empresaId: usuario.empresaId,
-      empresaNome: usuario.empresa.nome,
-    }
-
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES })
-
-    return {
-      token,
-      usuario: {
-        id: usuario.id,
-        nome: usuario.nome,
+      // Gera JWT
+      const payload = {
+        sub: usuario.id,
         email: usuario.email,
+        nome: usuario.nome,
         perfil: usuario.perfil,
         empresaId: usuario.empresaId,
         empresaNome: usuario.empresa.nome,
-      },
+      }
+
+      const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES })
+
+      return {
+        token,
+        usuario: {
+          id: usuario.id,
+          nome: usuario.nome,
+          email: usuario.email,
+          perfil: usuario.perfil,
+          empresaId: usuario.empresaId,
+          empresaNome: usuario.empresa.nome,
+        },
+      }
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err
+      this.logger.error('Erro inesperado no login', err?.stack ?? err)
+      throw err
     }
   }
 
