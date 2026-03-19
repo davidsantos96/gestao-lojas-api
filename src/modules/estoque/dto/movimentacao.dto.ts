@@ -23,6 +23,10 @@ export class CreateMovimentacaoDto {
   @ApiPropertyOptional({ example: 'Reposição de verão' })
   @IsOptional() @IsString()
   obs?: string
+
+  @ApiPropertyOptional({ example: 'VENDA' })
+  @IsOptional() @IsString()
+  motivo?: string
 }
 
 // ─── Filtros de listagem ──────────────────────────────────────────────────────

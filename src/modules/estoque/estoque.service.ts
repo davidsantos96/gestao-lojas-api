@@ -203,7 +203,7 @@ export class EstoqueService {
     const estoqueDepois = estoqueAntes + dto.quantidade  // quantidade já vem com sinal correto
 
     // Atualiza estoque e cria movimentação atomicamente
-    const [, movimentacao] = await this.prisma.$transaction([
+    const operacoes: any[] = [
       this.prisma.produto.update({
         where: { id: produto.id },
         data:  { estoque: estoqueDepois },
@@ -224,7 +224,27 @@ export class EstoqueService {
           produto: { select: { nome: true, sku: true } },
         },
       }),
-    ])
+    ]
+
+    if (dto.tipo === TipoMovimento.SAIDA && dto.motivo?.toUpperCase() === 'VENDA') {
+      operacoes.push(
+        this.prisma.venda.create({
+          data: {
+            empresaId,
+            produtoId:     produto.id,
+            quantidade:    Math.abs(dto.quantidade),
+            precoUnitario: produto.preco,
+            valorTotal:    Math.abs(dto.quantidade) * Number(produto.preco),
+            produtoNome:   produto.nome,
+            produtoSku:    produto.sku,
+            produtoCor:    produto.cor,
+            produtoCat:    produto.categoria,
+          }
+        })
+      )
+    }
+
+    const [, movimentacao] = await this.prisma.$transaction(operacoes)
 
     return {
       id:           movimentacao.id,

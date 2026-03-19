@@ -5,6 +5,7 @@ import { PrismaModule } from './prisma/prisma.module'
 import { EstoqueModule } from './modules/estoque/estoque.module'
 import { FinanceiroModule } from './modules/financeiro/financeiro.module'
 import { AuthModule } from './modules/auth/auth.module'
+import { VendasModule } from './modules/vendas/vendas.module'
 import { HealthModule } from './health/health.module'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
 
@@ -15,6 +16,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     AuthModule,
     EstoqueModule,
     FinanceiroModule,
+    VendasModule,
     HealthModule,
   ],
   providers: [

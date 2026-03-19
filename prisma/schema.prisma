@@ -34,6 +34,7 @@ model Empresa {
   contasReceber ContaReceber[]
   lancamentos Lancamento[]
   categoriasDespesa CategoriaDespesa[]
+  vendas      Venda[]
 
   @@map("empresas")
 }
@@ -88,6 +89,7 @@ model Produto {
 
   empresa    Empresa   @relation(fields: [empresaId], references: [id])
   movimentos MovimentacaoEstoque[]
+  vendas     Venda[]
 
   @@unique([empresaId, sku])
   @@index([empresaId])
@@ -251,4 +253,34 @@ model AnexoConta {
 
   @@index([contaPagarId])
   @@map("anexos_conta")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MÓDULO: VENDAS
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Registro de venda derivado de saída de estoque
+model Venda {
+  id            String   @id @default(cuid())
+  empresaId     String
+  produtoId     String
+  quantidade    Int
+  precoUnitario Decimal  @db.Decimal(10, 2)
+  valorTotal    Decimal  @db.Decimal(10, 2)
+  
+  // Snapshots para exibição sem joins complexos e manter histórico estático
+  produtoNome   String
+  produtoSku    String
+  produtoCor    String?
+  produtoCat    String
+
+  dataVenda     DateTime @default(now())
+
+  empresa       Empresa  @relation(fields: [empresaId], references: [id])
+  produto       Produto  @relation(fields: [produtoId], references: [id])
+
+  @@index([empresaId])
+  @@index([empresaId, produtoId])
+  @@index([empresaId, dataVenda])
+  @@map("vendas")
 }
