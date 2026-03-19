@@ -211,17 +211,6 @@ export class FinanceiroController {
     return this.financeiroService.criarLancamento(empresaId, dto, req.user?.sub)
   }
 
-  // ── Lançamentos — listagem, edição e exclusão ─────────────────────────────
-
-  @Get('lancamentos')
-  @ApiOperation({ summary: 'Listar lançamentos com filtros' })
-  listarLancamentos(
-    @EmpresaId() empresaId: string,
-    @Query() query: any,
-  ) {
-    return this.financeiroService.listarLancamentos(empresaId, query)
-  }
-
   @Put('lancamentos/:id')
   @ApiOperation({ summary: 'Atualizar lançamento' })
   atualizarLancamento(

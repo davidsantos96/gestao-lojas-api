@@ -470,7 +470,6 @@ export class FinanceiroService {
       obs:         c.obs,
     }
   }
-}
 
   // ══════════════════════════════════════════════════════════════════════════
   // LANÇAMENTOS — listagem, edição e exclusão
@@ -521,3 +520,4 @@ export class FinanceiroService {
     await this.prisma.lancamento.delete({ where: { id } })
     return { message: 'Lançamento removido com sucesso.' }
   }
+}
