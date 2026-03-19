@@ -4,7 +4,7 @@ import { ValidationPipe, Logger } from '@nestjs/common'
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger'
 import { AppModule } from './app.module'
 import { AllExceptionsFilter } from './common/filters/http-exception.filter'
-import compression from 'compression'
+import * as compression from 'compression'
 
 const logger = new Logger('Bootstrap')
 
