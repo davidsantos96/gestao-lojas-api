@@ -332,34 +332,46 @@ export class FinanceiroService {
 
   async cashflow(empresaId: string, query: QueryCashflowDto) {
     const meses = query.meses ?? 7
+    const hoje  = new Date()
+    const inicio = new Date(hoje.getFullYear(), hoje.getMonth() - (meses - 1), 1)
+    const fim    = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59)
+
+    // Uma única query por tipo agrupa todos os meses de uma vez
+    type Row = { mes: Date; total: string }
+
+    const [receitasRaw, despesasRaw] = await Promise.all([
+      this.prisma.$queryRaw<Row[]>`
+        SELECT date_trunc('month', data) AS mes, SUM(valor) AS total
+        FROM lancamentos
+        WHERE "empresaId" = ${empresaId}
+          AND tipo = 'RECEITA'
+          AND data >= ${inicio} AND data <= ${fim}
+        GROUP BY 1 ORDER BY 1
+      `,
+      this.prisma.$queryRaw<Row[]>`
+        SELECT date_trunc('month', data) AS mes, SUM(valor) AS total
+        FROM lancamentos
+        WHERE "empresaId" = ${empresaId}
+          AND tipo = 'DESPESA'
+          AND data >= ${inicio} AND data <= ${fim}
+        GROUP BY 1 ORDER BY 1
+      `,
+    ])
+
+    // Mapeia resultados indexados por mês (ISO string)
+    const recMap = new Map(receitasRaw.map(r => [r.mes.toISOString().slice(0, 7), Number(r.total)]))
+    const desMap = new Map(despesasRaw.map(r => [r.mes.toISOString().slice(0, 7), Number(r.total)]))
+
+    // Constrói array ordenado com todos os meses (mesmo os sem lançamentos)
     const resultado = []
-
-    const hoje = new Date()
-
     for (let i = meses - 1; i >= 0; i--) {
-      const ref   = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1)
-      const inicio = new Date(ref.getFullYear(), ref.getMonth(), 1)
-      const fim    = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 23, 59, 59)
-      const mes    = ref.toLocaleString('pt-BR', { month: 'short' })
-                       .replace('.', '')
-                       .replace(/^\w/, c => c.toUpperCase())
-
-      const [receitas, despesas] = await Promise.all([
-        // Receitas: lançamentos RECEITA + contas recebidas no mês
-        this.prisma.lancamento.aggregate({
-          where: { empresaId, tipo: TipoLancamento.RECEITA, data: { gte: inicio, lte: fim } },
-          _sum: { valor: true },
-        }),
-        // Despesas: lançamentos DESPESA + contas pagas no mês
-        this.prisma.lancamento.aggregate({
-          where: { empresaId, tipo: TipoLancamento.DESPESA, data: { gte: inicio, lte: fim } },
-          _sum: { valor: true },
-        }),
-      ])
-
-      const r = Number(receitas._sum.valor ?? 0)
-      const d = Number(despesas._sum.valor ?? 0)
-
+      const ref = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1)
+      const key = ref.toISOString().slice(0, 7)
+      const mes = ref.toLocaleString('pt-BR', { month: 'short' })
+                    .replace('.', '')
+                    .replace(/^\w/, c => c.toUpperCase())
+      const r = recMap.get(key) ?? 0
+      const d = desMap.get(key) ?? 0
       resultado.push({ mes, receitas: r, despesas: d, lucro: r - d })
     }
 

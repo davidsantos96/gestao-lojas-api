@@ -4,6 +4,7 @@ import { ValidationPipe, Logger } from '@nestjs/common'
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger'
 import { AppModule } from './app.module'
 import { AllExceptionsFilter } from './common/filters/http-exception.filter'
+import compression from 'compression'
 
 const logger = new Logger('Bootstrap')
 
@@ -11,6 +12,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['log', 'error', 'warn', 'debug'],
   })
+
+  // ── Compressão gzip/brotli ────────────────────────────────────────────────
+  app.use(compression({ level: 6, threshold: 1024 }))
 
   // ── CORS ──────────────────────────────────────────────────────────────────
   const origins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
@@ -53,7 +57,11 @@ async function bootstrap() {
 
   // ── Listen — Railway injeta PORT dinamicamente ────────────────────────────
   const port = process.env.PORT || 3000
-  await app.listen(port, '0.0.0.0')
+  const server = await app.listen(port, '0.0.0.0')
+
+  // Keep-alive: reduz overhead de TCP handshake em múltiplas requisições
+  server.keepAliveTimeout = 65_000
+  server.headersTimeout   = 66_000
 
   logger.log(`🚀 API rodando em http://0.0.0.0:${port}/api`)
   logger.log(`📖 Swagger em   http://0.0.0.0:${port}/docs`)

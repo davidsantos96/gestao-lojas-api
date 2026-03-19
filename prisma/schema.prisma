@@ -231,6 +231,7 @@ model Lancamento {
   @@index([empresaId])
   @@index([empresaId, tipo])
   @@index([empresaId, data])
+  @@index([empresaId, tipo, data])  // índice composto para queries de cashflow/resumo
   @@map("lancamentos")
 }
 
