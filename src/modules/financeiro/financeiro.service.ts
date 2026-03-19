@@ -52,13 +52,15 @@ export class FinanceiroService {
   }
 
   async criarContaPagar(empresaId: string, dto: CreateContaPagarDto) {
+    const categoriaId = await this.resolverCategoria(empresaId, dto.categoria_id)
+
     const conta = await this.prisma.contaPagar.create({
       data: {
         empresaId,
         descricao:   dto.descricao,
         valor:       dto.valor,
         vencimento:  new Date(dto.vencimento),
-        categoriaId: dto.categoria_id ?? null,
+        categoriaId,
         obs:         dto.obs ?? null,
         status:      StatusConta.PENDENTE,
       },
@@ -69,13 +71,19 @@ export class FinanceiroService {
 
   async atualizarContaPagar(empresaId: string, id: string, dto: UpdateContaPagarDto) {
     await this.garantirContaPagar(empresaId, id)
+
+    let categoriaIdUpdate = undefined;
+    if (dto.categoria_id !== undefined) {
+      categoriaIdUpdate = await this.resolverCategoria(empresaId, dto.categoria_id);
+    }
+
     const conta = await this.prisma.contaPagar.update({
       where: { id },
       data: {
         ...(dto.descricao    && { descricao: dto.descricao }),
         ...(dto.valor        && { valor: dto.valor }),
         ...(dto.vencimento   && { vencimento: new Date(dto.vencimento) }),
-        ...(dto.categoria_id !== undefined && { categoriaId: dto.categoria_id }),
+        ...(dto.categoria_id !== undefined && { categoriaId: categoriaIdUpdate }),
         ...(dto.obs          !== undefined && { obs: dto.obs }),
       },
       include: { categoria: { select: { nome: true, cor: true } } },
@@ -268,11 +276,13 @@ export class FinanceiroService {
   }
 
   async criarLancamento(empresaId: string, dto: CreateLancamentoDto, usuarioId?: string) {
+    const categoriaId = await this.resolverCategoria(empresaId, dto.categoria_id)
+
     const lancamento = await this.prisma.lancamento.create({
       data: {
         empresaId,
         usuarioId:   usuarioId ?? null,
-        categoriaId: dto.categoria_id ?? null,
+        categoriaId,
         tipo:        dto.tipo,
         descricao:   dto.descricao,
         valor:       dto.valor,
@@ -290,13 +300,19 @@ export class FinanceiroService {
   async atualizarLancamento(empresaId: string, id: string, dto: Partial<CreateLancamentoDto>) {
     const lancamento = await this.prisma.lancamento.findFirst({ where: { id, empresaId } })
     if (!lancamento) throw new NotFoundException('Lançamento não encontrado.')
+    
+    let categoriaIdUpdate = undefined;
+    if (dto.categoria_id !== undefined) {
+      categoriaIdUpdate = await this.resolverCategoria(empresaId, dto.categoria_id);
+    }
+
     const atualizado = await this.prisma.lancamento.update({
       where: { id },
       data: {
         ...(dto.descricao   && { descricao: dto.descricao }),
         ...(dto.valor       && { valor: dto.valor }),
         ...(dto.data        && { data: new Date(dto.data) }),
-        ...(dto.categoria_id !== undefined && { categoriaId: dto.categoria_id }),
+        ...(dto.categoria_id !== undefined && { categoriaId: categoriaIdUpdate }),
         ...(dto.obs         !== undefined && { obs: dto.obs }),
       },
     })
@@ -492,5 +508,15 @@ export class FinanceiroService {
       status:      c.status.toLowerCase(),
       obs:         c.obs,
     }
+  }
+
+  private async resolverCategoria(empresaId: string, nomeOuId: string | null | undefined): Promise<string | null> {
+    if (!nomeOuId) return null;
+    if (nomeOuId.length >= 20 && nomeOuId.startsWith('c')) return nomeOuId; // CUID
+    let cat = await this.prisma.categoriaDespesa.findFirst({ where: { empresaId, nome: nomeOuId } });
+    if (!cat) {
+      cat = await this.prisma.categoriaDespesa.create({ data: { empresaId, nome: nomeOuId } });
+    }
+    return cat.id;
   }
 }
