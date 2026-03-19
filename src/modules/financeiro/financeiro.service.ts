@@ -471,3 +471,53 @@ export class FinanceiroService {
     }
   }
 }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // LANÇAMENTOS — listagem, edição e exclusão
+  // ══════════════════════════════════════════════════════════════════════════
+
+  async listarLancamentos(empresaId: string, query: { tipo?: string; page?: number; limit?: number }) {
+    const { tipo, page = 1, limit = 50 } = query
+    const skip = (page - 1) * limit
+    const where: any = {
+      empresaId,
+      ...(tipo && { tipo: tipo.toUpperCase() }),
+    }
+    const [data, total] = await Promise.all([
+      this.prisma.lancamento.findMany({
+        where,
+        include: { categoria: { select: { nome: true } } },
+        orderBy: { data: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.lancamento.count({ where }),
+    ])
+    return {
+      data: data.map(l => ({ ...l, valor: Number(l.valor) })),
+      total, page, limit,
+    }
+  }
+
+  async atualizarLancamento(empresaId: string, id: string, dto: Partial<CreateLancamentoDto>) {
+    const lancamento = await this.prisma.lancamento.findFirst({ where: { id, empresaId } })
+    if (!lancamento) throw new NotFoundException('Lançamento não encontrado.')
+    const atualizado = await this.prisma.lancamento.update({
+      where: { id },
+      data: {
+        ...(dto.descricao   && { descricao: dto.descricao }),
+        ...(dto.valor       && { valor: dto.valor }),
+        ...(dto.data        && { data: new Date(dto.data) }),
+        ...(dto.categoria_id !== undefined && { categoriaId: dto.categoria_id }),
+        ...(dto.obs         !== undefined && { obs: dto.obs }),
+      },
+    })
+    return { ...atualizado, valor: Number(atualizado.valor) }
+  }
+
+  async removerLancamento(empresaId: string, id: string) {
+    const lancamento = await this.prisma.lancamento.findFirst({ where: { id, empresaId } })
+    if (!lancamento) throw new NotFoundException('Lançamento não encontrado.')
+    await this.prisma.lancamento.delete({ where: { id } })
+    return { message: 'Lançamento removido com sucesso.' }
+  }

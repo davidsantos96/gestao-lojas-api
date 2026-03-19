@@ -210,4 +210,35 @@ export class FinanceiroController {
   ) {
     return this.financeiroService.criarLancamento(empresaId, dto, req.user?.sub)
   }
+
+  // ── Lançamentos — listagem, edição e exclusão ─────────────────────────────
+
+  @Get('lancamentos')
+  @ApiOperation({ summary: 'Listar lançamentos com filtros' })
+  listarLancamentos(
+    @EmpresaId() empresaId: string,
+    @Query() query: any,
+  ) {
+    return this.financeiroService.listarLancamentos(empresaId, query)
+  }
+
+  @Put('lancamentos/:id')
+  @ApiOperation({ summary: 'Atualizar lançamento' })
+  atualizarLancamento(
+    @EmpresaId() empresaId: string,
+    @Param('id') id: string,
+    @Body() dto: CreateLancamentoDto,
+  ) {
+    return this.financeiroService.atualizarLancamento(empresaId, id, dto)
+  }
+
+  @Delete('lancamentos/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remover lançamento' })
+  removerLancamento(
+    @EmpresaId() empresaId: string,
+    @Param('id') id: string,
+  ) {
+    return this.financeiroService.removerLancamento(empresaId, id)
+  }
 }
