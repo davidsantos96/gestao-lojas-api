@@ -54,6 +54,7 @@ model Usuario {
 
   movimentos    MovimentacaoEstoque[]
   lancamentos   Lancamento[]
+  vendas        Venda[]
 
   @@unique([empresaId, email])
   @@index([empresaId])
@@ -89,7 +90,7 @@ model Produto {
 
   empresa    Empresa   @relation(fields: [empresaId], references: [id])
   movimentos MovimentacaoEstoque[]
-  vendas     Venda[]
+  itensVenda ItemVenda[]
 
   @@unique([empresaId, sku])
   @@index([empresaId])
@@ -260,28 +261,61 @@ model AnexoConta {
 // MÓDULO: VENDAS
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// Registro de venda derivado de saída de estoque
+enum FormaPagamento {
+  DINHEIRO
+  PIX
+  CARTAO_CREDITO
+  CARTAO_DEBITO
+  BOLETO
+  OUTRO
+}
+
+enum StatusVenda {
+  CONCLUIDA
+  CANCELADA
+}
+
+/// Venda registrada (cabeçalho)
 model Venda {
-  id            String   @id @default(cuid())
-  empresaId     String
-  produtoId     String
-  quantidade    Int
-  precoUnitario Decimal  @db.Decimal(10, 2)
-  valorTotal    Decimal  @db.Decimal(10, 2)
-  
-  // Snapshots para exibição sem joins complexos e manter histórico estático
-  produtoNome   String
-  produtoSku    String
-  produtoCor    String?
-  produtoCat    String
+  id             String         @id @default(cuid())
+  empresaId      String
+  usuarioId      String?
+  numero         Int            @default(autoincrement())
+  cliente        String?
+  formaPagamento FormaPagamento @default(DINHEIRO)
+  parcelas       Int            @default(1)
+  totalBruto     Decimal        @db.Decimal(10, 2)
+  desconto       Decimal        @db.Decimal(10, 2) @default(0)
+  totalLiquido   Decimal        @db.Decimal(10, 2)
+  status         StatusVenda    @default(CONCLUIDA)
+  obs            String?
+  criadoEm      DateTime        @default(now())
+  atualizadoEm  DateTime        @updatedAt
 
-  dataVenda     DateTime @default(now())
-
-  empresa       Empresa  @relation(fields: [empresaId], references: [id])
-  produto       Produto  @relation(fields: [produtoId], references: [id])
+  empresa Empresa   @relation(fields: [empresaId], references: [id])
+  usuario Usuario?  @relation(fields: [usuarioId], references: [id])
+  itens   ItemVenda[]
 
   @@index([empresaId])
-  @@index([empresaId, produtoId])
-  @@index([empresaId, dataVenda])
+  @@index([empresaId, status])
+  @@index([empresaId, criadoEm])
   @@map("vendas")
+}
+
+/// Item de uma venda
+model ItemVenda {
+  id            String  @id @default(cuid())
+  vendaId       String
+  produtoId     String
+  quantidade    Int
+  precoUnitario Decimal @db.Decimal(10, 2)
+  desconto      Decimal @db.Decimal(10, 2) @default(0)
+  subtotal      Decimal @db.Decimal(10, 2)
+
+  venda   Venda   @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  produto Produto @relation(fields: [produtoId], references: [id])
+
+  @@index([vendaId])
+  @@index([produtoId])
+  @@map("itens_venda")
 }
