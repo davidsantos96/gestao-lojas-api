@@ -226,23 +226,6 @@ export class EstoqueService {
       }),
     ]
 
-    if (dto.tipo === TipoMovimento.SAIDA && dto.motivo?.toUpperCase() === 'VENDA') {
-      operacoes.push(
-        this.prisma.venda.create({
-          data: {
-            empresaId,
-            produtoId:     produto.id,
-            quantidade:    Math.abs(dto.quantidade),
-            precoUnitario: produto.preco,
-            valorTotal:    Math.abs(dto.quantidade) * Number(produto.preco),
-            produtoNome:   produto.nome,
-            produtoSku:    produto.sku,
-            produtoCor:    produto.cor,
-            produtoCat:    produto.categoria,
-          }
-        })
-      )
-    }
 
     const [, movimentacao] = await this.prisma.$transaction(operacoes)
 
