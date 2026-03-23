@@ -178,10 +178,9 @@ export class VendasService {
         }
       })
 
-      // Cancelar a Conta a Receber gerada por esta venda
-      await tx.contaReceber.updateMany({
-        where: { empresaId, descricao: descricaoVenda, NOT: { status: StatusConta.CANCELADO } },
-        data: { status: StatusConta.CANCELADO }
+      // Remover a Conta a Receber gerada por esta venda
+      await tx.contaReceber.deleteMany({
+        where: { empresaId, descricao: descricaoVenda }
       })
     })
 
