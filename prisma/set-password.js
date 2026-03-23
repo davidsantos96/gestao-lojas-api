@@ -1,35 +1,37 @@
-// Script para atualizar senha do user demo existente
+/**
+ * Redefine a senha de um usuário existente.
+ *
+ * Uso:
+ *   node prisma/set-password.js --email="user@loja.com" --senha="NovaSenhaForte"
+ */
 require('dotenv').config()
 const { PrismaClient } = require('@prisma/client')
 const bcrypt = require('bcryptjs')
 
 const prisma = new PrismaClient()
 
+function getArg(flag) {
+  const arg = process.argv.find(a => a.startsWith(`--${flag}=`))
+  return arg ? arg.split('=').slice(1).join('=') : null
+}
+
 async function main() {
-  const senhaHash = await bcrypt.hash('admin123', 10)
+  const email = getArg('email')
+  const senha = getArg('senha')
 
-  // Busca todos os usuários ativos
-  const users = await prisma.usuario.findMany({ where: { ativo: true } })
-
-  // Filtra quem precisa de atualização: sem senha ou hash inválido (não bcrypt)
-  const precisamAtualizar = users.filter(u => !u.senha || !u.senha.startsWith('$2'))
-
-  if (precisamAtualizar.length === 0) {
-    console.log('Todos os usuários já possuem senha bcrypt válida.')
-    return
+  if (!email || !senha) {
+    console.error('❌ Uso: node prisma/set-password.js --email="..." --senha="..."')
+    process.exit(1)
   }
 
-  for (const user of precisamAtualizar) {
-    await prisma.usuario.update({
-      where: { id: user.id },
-      data: { senha: senhaHash },
-    })
-    console.log(`✓ Senha definida para: ${user.nome} (${user.email})`)
-  }
+  const usuario = await prisma.usuario.findFirst({ where: { email } })
+  if (!usuario) { console.error(`❌ Usuário não encontrado: ${email}`); process.exit(1) }
 
-  console.log('\n✅ Senha padrão: admin123')
+  const hash = await bcrypt.hash(senha, 12)
+  await prisma.usuario.update({ where: { id: usuario.id }, data: { senha: hash } })
+  console.log(`✓ Senha atualizada para: ${usuario.nome} (${email})`)
 }
 
 main()
-  .catch(e => { console.error(e); process.exit(1) })
+  .catch(e => { console.error('❌ Erro:', e.message); process.exit(1) })
   .finally(() => prisma.$disconnect())

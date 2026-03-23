@@ -21,7 +21,13 @@ async function main() {
   console.log('✓ Empresa:', empresa.nome)
 
   // ── Usuário ────────────────────────────────────────────────────────────────
-  const senhaHash = await bcrypt.hash('admin123', 10)
+  // Senha do usuário demo lida via variável de ambiente
+  const SEED_SENHA = process.env.SEED_ADMIN_SENHA
+  if (!SEED_SENHA) {
+    console.warn('⚠ SEED_ADMIN_SENHA não definida — usuário demo não será criado/atualizado.')
+    return
+  }
+  const senhaHash = await bcrypt.hash(SEED_SENHA, 12)
 
   const usuario = await prisma.usuario.upsert({
     where:  { empresaId_email: { empresaId: empresa.id, email: 'ana@lojacentro.com.br' } },
@@ -35,21 +41,7 @@ async function main() {
       perfil:    Perfil.ADMIN,
     },
   })
-  console.log('✓ Usuário:', usuario.nome, '(email: ana@lojacentro.com.br / senha: admin123)')
-
-  // Alias admin@ para compatibilidade
-  await prisma.usuario.upsert({
-    where:  { empresaId_email: { empresaId: empresa.id, email: 'admin@lojacentro.com.br' } },
-    update: { senha: senhaHash },
-    create: {
-      empresaId: empresa.id,
-      nome:      'Admin',
-      email:     'admin@lojacentro.com.br',
-      senha:     senhaHash,
-      perfil:    Perfil.ADMIN,
-    },
-  })
-  console.log('✓ Usuário alias: admin@lojacentro.com.br / senha: admin123')
+  console.log('✓ Usuário:', usuario.nome)
 
   // ── Categorias de despesa ──────────────────────────────────────────────────
   const cats = await Promise.all([

@@ -1,46 +1,59 @@
-// Script para criar uma nova empresa e usuário admin
-// Uso: node prisma/create-company-user.js
+/**
+ * Cria uma nova empresa e usuário admin.
+ *
+ * Uso:
+ *   node prisma/create-company-user.js \
+ *     --empresa="Nome da Loja" \
+ *     --email="admin@loja.com" \
+ *     --nome="Nome Usuário" \
+ *     --senha="SuaSenhaForte"
+ *
+ * Ou via variáveis de ambiente:
+ *   EMPRESA_NOME="..." USUARIO_EMAIL="..." USUARIO_SENHA="..." node prisma/create-company-user.js
+ */
+require('dotenv').config()
 const { PrismaClient } = require('@prisma/client')
 const bcrypt = require('bcryptjs')
 
 const prisma = new PrismaClient()
 
+function getArg(flag, envKey) {
+  const arg = process.argv.find(a => a.startsWith(`--${flag}=`))
+  return arg ? arg.split('=').slice(1).join('=') : process.env[envKey]
+}
+
 async function main() {
-  // ── Dados da nova empresa ─────────────────────────────────────────────────
-  const EMPRESA_NOME  = 'Flor de Liz'
-  const USUARIO_NOME  = 'Flor de Liz'
-  const USUARIO_EMAIL = 'flordelizbrand@gmail.com'
-  const USUARIO_SENHA = 'flor123@'
-  const USUARIO_PERFIL = 'ADMIN'
+  const empresaNome  = getArg('empresa', 'EMPRESA_NOME')
+  const usuarioEmail = getArg('email',   'USUARIO_EMAIL')
+  const usuarioNome  = getArg('nome',    'USUARIO_NOME')  || empresaNome
+  const usuarioSenha = getArg('senha',   'USUARIO_SENHA')
 
-  console.log(`\n🌱 Criando empresa "${EMPRESA_NOME}"...`)
+  if (!empresaNome || !usuarioEmail || !usuarioSenha) {
+    console.error('❌ Parâmetros obrigatórios: --empresa, --email, --senha')
+    console.error('   Ou defina EMPRESA_NOME, USUARIO_EMAIL, USUARIO_SENHA no .env')
+    process.exit(1)
+  }
 
-  // ── Empresa ───────────────────────────────────────────────────────────────
+  console.log(`\n🌱 Criando empresa "${empresaNome}"...`)
+
   const empresa = await prisma.empresa.create({
-    data: {
-      nome:  EMPRESA_NOME,
-      email: USUARIO_EMAIL,
-      ativo: true,
-    },
+    data: { nome: empresaNome, email: usuarioEmail, ativo: true },
   })
   console.log(`✓ Empresa criada — id: ${empresa.id}`)
 
-  // ── Usuário ───────────────────────────────────────────────────────────────
-  const senhaHash = await bcrypt.hash(USUARIO_SENHA, 10)
-
+  const senhaHash = await bcrypt.hash(usuarioSenha, 12)
   const usuario = await prisma.usuario.create({
     data: {
       empresaId: empresa.id,
-      nome:      USUARIO_NOME,
-      email:     USUARIO_EMAIL,
+      nome:      usuarioNome,
+      email:     usuarioEmail,
       senha:     senhaHash,
-      perfil:    USUARIO_PERFIL,
+      perfil:    'ADMIN',
       ativo:     true,
     },
   })
   console.log(`✓ Usuário criado — id: ${usuario.id}`)
 
-  // ── Categorias de despesa padrão ──────────────────────────────────────────
   const categoriasPadrao = [
     { nome: 'Fornecedor', cor: '#4f8fff' },
     { nome: 'Aluguel',    cor: '#b478ff' },
@@ -49,20 +62,13 @@ async function main() {
     { nome: 'Marketing',  cor: '#ff5b6b' },
     { nome: 'Outro',      cor: '#9299b0' },
   ]
-
   await Promise.all(
     categoriasPadrao.map(c =>
-      prisma.categoriaDespesa.create({
-        data: { empresaId: empresa.id, nome: c.nome, cor: c.cor },
-      })
+      prisma.categoriaDespesa.create({ data: { empresaId: empresa.id, ...c } })
     )
   )
-  console.log(`✓ Categorias de despesa padrão criadas`)
-
-  console.log('\n✅ Pronto! Acesso:')
-  console.log(`   E-mail : ${USUARIO_EMAIL}`)
-  console.log(`   Senha  : ${USUARIO_SENHA}`)
-  console.log(`   Empresa: ${EMPRESA_NOME} (id: ${empresa.id})`)
+  console.log(`✓ Categorias padrão criadas`)
+  console.log(`\n✅ Pronto! E-mail: ${usuarioEmail} | Empresa: ${empresaNome} (${empresa.id})`)
 }
 
 main()

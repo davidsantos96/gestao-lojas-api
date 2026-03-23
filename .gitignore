@@ -5,3 +5,7 @@ dist/
 uploads/
 *.log
 .DS_Store
+
+# Scripts com dados sensíveis — nunca versionar
+prisma/fix-*.sql
+prisma/create-*.env
