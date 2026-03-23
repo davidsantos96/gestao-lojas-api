@@ -167,12 +167,21 @@ export class VendasService {
         })
       }
 
-      await tx.lancamento.create({
-        data: {
-          empresaId, tipo: TipoLancamento.DESPESA,
-          descricao: `Estorno Venda #${venda.numero}`,
-          valor: Number(venda.totalLiquido), data: new Date(),
-        },
+      const descricaoVenda = `Venda #${venda.numero}${venda.cliente ? ` — ${venda.cliente}` : ''}`
+
+      // Remover possíveis lançamentos de Receita gerados por esta venda ou por sua Conta a Receber
+      await tx.lancamento.deleteMany({
+        where: { 
+          empresaId, 
+          tipo: TipoLancamento.RECEITA,
+          descricao: { in: [descricaoVenda, `Recebimento: ${descricaoVenda}`] }
+        }
+      })
+
+      // Cancelar a Conta a Receber gerada por esta venda
+      await tx.contaReceber.updateMany({
+        where: { empresaId, descricao: descricaoVenda, NOT: { status: StatusConta.CANCELADO } },
+        data: { status: StatusConta.CANCELADO }
       })
     })
 
