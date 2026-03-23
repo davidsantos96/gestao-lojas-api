@@ -174,13 +174,17 @@ export class VendasService {
         where: { 
           empresaId, 
           tipo: TipoLancamento.RECEITA,
-          descricao: { in: [descricaoVenda, `Recebimento: ${descricaoVenda}`] }
+          OR: [
+            { descricao: { startsWith: `Venda #${venda.numero}` } },
+            { descricao: { startsWith: `Recebimento: Venda #${venda.numero}` } }
+          ]
         }
       })
 
-      // Remover a Conta a Receber gerada por esta venda
-      await tx.contaReceber.deleteMany({
-        where: { empresaId, descricao: descricaoVenda }
+      // Remover ou CANCELAR a Conta a Receber gerada por esta venda
+      await tx.contaReceber.updateMany({
+        where: { empresaId, descricao: { startsWith: `Venda #${venda.numero}` } },
+        data: { status: StatusConta.CANCELADO }
       })
     })
 
