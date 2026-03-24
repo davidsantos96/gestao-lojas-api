@@ -7,15 +7,27 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   pool: Pool
 
   onModuleInit() {
-    const connString = process.env.DATABASE_URL
-    if (!connString) throw new Error('DATABASE_URL não definida')
+    const rawConn = process.env.DATABASE_URL
+    if (!rawConn) throw new Error('DATABASE_URL não definida')
+
+    const isLocal = rawConn.includes('localhost') || rawConn.includes('127.0.0.1')
+
+    // Remove ?sslmode da URL para evitar que pg-connection-string sobreescreva
+    // o ssl config com verificação estrita (sslmode=require → verify-full no pg v8)
+    let connString = rawConn
+    if (!isLocal) {
+      try {
+        const url = new URL(rawConn)
+        url.searchParams.delete('sslmode')
+        connString = url.toString()
+      } catch {
+        // Se a URL não parsear, usa a original
+      }
+    }
 
     this.pool = new Pool({
       connectionString: connString,
-      // Supabase exige SSL; conexões locais dispensam
-      ssl: connString.includes('localhost') || connString.includes('127.0.0.1')
-        ? false
-        : { rejectUnauthorized: false },
+      ssl: isLocal ? false : { rejectUnauthorized: false },
       max: 10,
     })
 
