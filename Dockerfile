@@ -1,15 +1,13 @@
 FROM node:20-slim
 
-RUN apt-get update -y && apt-get install -y openssl postgresql-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY package*.json nest-cli.json tsconfig.json ./
 RUN npm ci --include=dev
 
-COPY prisma ./prisma
-RUN npx prisma generate
-
+COPY db ./db
 COPY src ./src
 RUN npx nest build
 

@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException, Logger } from '@nestjs/common'
-import { PrismaService } from '../../prisma/prisma.service'
+import { DatabaseService } from '../../database/database.service'
+import { Usuario } from '../../database/entities'
 import { LoginDto } from './dto/login.dto'
 import * as bcrypt from 'bcryptjs'
 import * as jwt from 'jsonwebtoken'
@@ -7,12 +8,14 @@ import * as jwt from 'jsonwebtoken'
 const JWT_SECRET = process.env.JWT_SECRET || 'gestao-lojas-dev-secret-2026'
 const JWT_EXPIRES = '24h'
 
+type UsuarioComEmpresa = Usuario & { empresa_nome: string }
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name)
   private readonly blacklist = new Set<string>()
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private db: DatabaseService) {}
 
   /** Invalida um token JWT (logout) */
   logout(token: string): void {
@@ -26,36 +29,36 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     try {
-      // Busca usuário pelo email (em qualquer empresa)
-      const usuario = await this.prisma.usuario.findFirst({
-        where: { email: dto.email, ativo: true },
-        include: { empresa: { select: { id: true, nome: true } } },
-      })
+      const row = await this.db.queryOne<UsuarioComEmpresa>(
+        `SELECT u.*, e.nome AS empresa_nome
+         FROM usuarios u
+         JOIN empresas e ON e.id = u."empresaId"
+         WHERE u.email = $1 AND u.ativo = true
+         LIMIT 1`,
+        [dto.email],
+      )
 
-      if (!usuario || !usuario.senha) {
+      if (!row || !row.senha) {
         throw new UnauthorizedException('Email ou senha inválidos')
       }
 
-      // Compara hash da senha — bcrypt.compare lança exceção se o hash não for válido
       let senhaValida = false
       try {
-        senhaValida = await bcrypt.compare(dto.senha, usuario.senha)
+        senhaValida = await bcrypt.compare(dto.senha, row.senha)
       } catch {
-        // Hash inválido (não é bcrypt) → trata como credencial incorreta
-        this.logger.warn(`Hash de senha inválido para usuário: ${usuario.email}`)
+        this.logger.warn(`Hash de senha inválido para usuário: ${row.email}`)
       }
       if (!senhaValida) {
         throw new UnauthorizedException('Email ou senha inválidos')
       }
 
-      // Gera JWT
       const payload = {
-        sub: usuario.id,
-        email: usuario.email,
-        nome: usuario.nome,
-        perfil: usuario.perfil,
-        empresaId: usuario.empresaId,
-        empresaNome: usuario.empresa.nome,
+        sub: row.id,
+        email: row.email,
+        nome: row.nome,
+        perfil: row.perfil,
+        empresaId: row.empresaId,
+        empresaNome: row.empresa_nome,
       }
 
       const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES })
@@ -63,12 +66,12 @@ export class AuthService {
       return {
         token,
         usuario: {
-          id: usuario.id,
-          nome: usuario.nome,
-          email: usuario.email,
-          perfil: usuario.perfil,
-          empresaId: usuario.empresaId,
-          empresaNome: usuario.empresa.nome,
+          id: row.id,
+          nome: row.nome,
+          email: row.email,
+          perfil: row.perfil,
+          empresaId: row.empresaId,
+          empresaNome: row.empresa_nome,
         },
       }
     } catch (err) {
@@ -89,22 +92,25 @@ export class AuthService {
 
   /** Busca dados do usuário pelo ID (para /me) */
   async me(userId: string) {
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { id: userId },
-      include: { empresa: { select: { id: true, nome: true } } },
-    })
+    const row = await this.db.queryOne<UsuarioComEmpresa>(
+      `SELECT u.*, e.nome AS empresa_nome
+       FROM usuarios u
+       JOIN empresas e ON e.id = u."empresaId"
+       WHERE u.id = $1`,
+      [userId],
+    )
 
-    if (!usuario || !usuario.ativo) {
+    if (!row || !row.ativo) {
       throw new UnauthorizedException('Usuário não encontrado')
     }
 
     return {
-      id: usuario.id,
-      nome: usuario.nome,
-      email: usuario.email,
-      perfil: usuario.perfil,
-      empresaId: usuario.empresaId,
-      empresaNome: usuario.empresa.nome,
+      id: row.id,
+      nome: row.nome,
+      email: row.email,
+      perfil: row.perfil,
+      empresaId: row.empresaId,
+      empresaNome: row.empresa_nome,
     }
   }
 }

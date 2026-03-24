@@ -1,14 +1,15 @@
-import {
+﻿import {
   Injectable, NotFoundException, BadRequestException, ConflictException,
 } from '@nestjs/common'
-import { PrismaService } from '../../prisma/prisma.service'
-import { CategoriaEstoque, TipoMovimento, Prisma } from '@prisma/client'
+import { DatabaseService } from '../../database/database.service'
+import { Produto, MovimentacaoEstoque, CategoriaEstoque, TipoMovimento } from '../../database/entities'
 import { CreateProdutoDto, UpdateProdutoDto, QueryProdutosDto } from './dto/produto.dto'
 import { CreateMovimentacaoDto, QueryMovimentacoesDto } from './dto/movimentacao.dto'
+import { randomUUID } from 'crypto'
 
 @Injectable()
 export class EstoqueService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly db: DatabaseService) {}
 
   // ══════════════════════════════════════════════════════════════════════════
   // PRODUTOS
@@ -18,120 +19,115 @@ export class EstoqueService {
     const { busca, categoria, status, page = 1, limit = 50 } = query
     const skip = (page - 1) * limit
 
-    // Monta filtro dinâmico
-    const where: Prisma.ProdutoWhereInput = {
-      empresaId,
-      ativo: true,
-      ...(categoria && { categoria }),
-      ...(busca && {
-        OR: [
-          { nome:      { contains: busca, mode: 'insensitive' } },
-          { sku:       { contains: busca, mode: 'insensitive' } },
-          { cor:       { contains: busca, mode: 'insensitive' } },
-        ],
-      }),
-      // Filtro de status baseado no campo estoque vs mínimo
-      // Nota: Prisma não suporta comparação entre campos (estoque <= minimo),
-      // por isso 'low' retorna todos estoque > 0 e a filtragem exata é feita no frontend.
-      ...(status === 'out' && { estoque: 0 }),
-      ...(status === 'low' && { estoque: { gt: 0 } }),
-      ...(status === 'ok'  && { estoque: { gt: 0 } }),
-    }
+    const conds: string[] = [`p."empresaId" = $1`, `p.ativo = true`]
+    const params: unknown[] = [empresaId]
+    let idx = 2
 
-    const [data, total] = await Promise.all([
-      this.prisma.produto.findMany({
-        where,
-        orderBy: { nome: 'asc' },
-        skip,
-        take: limit,
-      }),
-      this.prisma.produto.count({ where }),
+    if (categoria) {
+      conds.push(`p.categoria = $${idx++}`)
+      params.push(categoria)
+    }
+    if (busca) {
+      conds.push(`(p.nome ILIKE $${idx} OR p.sku ILIKE $${idx} OR p.cor ILIKE $${idx})`)
+      params.push(`%${busca}%`)
+      idx++
+    }
+    if (status === 'out') { conds.push(`p.estoque = 0`) }
+    if (status === 'low') { conds.push(`p.estoque > 0`) }
+    if (status === 'ok')  { conds.push(`p.estoque > 0`) }
+
+    const where = conds.join(' AND ')
+
+    const [rows, countRow] = await Promise.all([
+      this.db.query<Produto>(
+        `SELECT * FROM produtos p WHERE ${where} ORDER BY p.nome ASC LIMIT $${idx} OFFSET $${idx + 1}`,
+        [...params, limit, skip],
+      ),
+      this.db.queryOne<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM produtos p WHERE ${where}`,
+        params,
+      ),
     ])
 
-    // Calcula status no retorno
-    const dataComStatus = data.map(p => ({
-      ...p,
-      preco:  Number(p.preco),
-      custo:  Number(p.custo),
+    const total = Number(countRow?.count ?? 0)
+
+    const data = rows.map(p => ({
+      ...p, preco: Number(p.preco), custo: Number(p.custo),
       status: this.calcularStatus(p.estoque, p.minimo),
     }))
 
-    return { data: dataComStatus, total, page, limit, pages: Math.ceil(total / limit) }
+    return { data, total, page, limit, pages: Math.ceil(total / limit) }
   }
 
   async buscarProduto(empresaId: string, id: string) {
-    const produto = await this.prisma.produto.findFirst({
-      where: { id, empresaId, ativo: true },
-    })
-    if (!produto) throw new NotFoundException('Produto não encontrado.')
-    return { ...produto, preco: Number(produto.preco), custo: Number(produto.custo), status: this.calcularStatus(produto.estoque, produto.minimo) }
+    const p = await this.db.queryOne<Produto>(
+      `SELECT * FROM produtos WHERE id = $1 AND "empresaId" = $2 AND ativo = true`,
+      [id, empresaId],
+    )
+    if (!p) throw new NotFoundException('Produto não encontrado.')
+    return { ...p, preco: Number(p.preco), custo: Number(p.custo), status: this.calcularStatus(p.estoque, p.minimo) }
   }
 
   async criarProduto(empresaId: string, dto: CreateProdutoDto) {
     const { estoque_inicial = 0, minimo = 0, ...dados } = dto
 
-    // Verifica SKU duplicado
-    const existe = await this.prisma.produto.findUnique({
-      where: { empresaId_sku: { empresaId, sku: dto.sku.toUpperCase() } },
-    })
+    const existe = await this.db.queryOne(
+      `SELECT id FROM produtos WHERE "empresaId" = $1 AND sku = $2`,
+      [empresaId, dto.sku.toUpperCase()],
+    )
     if (existe) throw new ConflictException(`Já existe um produto com o código "${dto.sku}".`)
 
-    const produto = await this.prisma.produto.create({
-      data: {
-        empresaId,
-        sku:      dados.sku.toUpperCase(),
-        nome:     dados.nome,
-        categoria: dados.categoria,
-        cor:      dados.cor,
-        preco:    dados.preco,
-        custo:    dados.custo,
-        estoque:  estoque_inicial,
-        minimo,
-      },
-    })
+    const id = randomUUID()
+    const produto = await this.db.queryOne<Produto>(
+      `INSERT INTO produtos (id, "empresaId", sku, nome, categoria, cor, preco, custo, estoque, minimo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [id, empresaId, dados.sku.toUpperCase(), dados.nome, dados.categoria, dados.cor ?? null,
+       dados.preco, dados.custo, estoque_inicial, minimo],
+    )
 
-    // Registra movimentação de entrada inicial se estoque > 0
     if (estoque_inicial > 0) {
-      await this.prisma.movimentacaoEstoque.create({
-        data: {
-          empresaId,
-          produtoId:     produto.id,
-          tipo:          TipoMovimento.ENTRADA,
-          quantidade:    estoque_inicial,
-          estoqueAntes:  0,
-          estoqueDepois: estoque_inicial,
-          origem:        'Estoque inicial',
-        },
-      })
+      await this.db.query(
+        `INSERT INTO movimentacoes_estoque
+           (id, "empresaId", "produtoId", tipo, quantidade, "estoqueAntes", "estoqueDepois", origem)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [randomUUID(), empresaId, produto.id, 'ENTRADA', estoque_inicial, 0, estoque_inicial, 'Estoque inicial'],
+      )
     }
 
     return { ...produto, preco: Number(produto.preco), custo: Number(produto.custo), status: this.calcularStatus(produto.estoque, produto.minimo) }
   }
 
   async atualizarProduto(empresaId: string, id: string, dto: UpdateProdutoDto) {
-    await this.buscarProduto(empresaId, id)   // garante existência
+    await this.buscarProduto(empresaId, id)
 
-    // Campos que não podem ser alterados via update (estoque é gerenciado por movimentações)
-    const { estoque_inicial, ...dados } = dto
+    const { estoque_inicial: _, ...dados } = dto as any
+    const sets: string[] = []
+    const params: unknown[] = []
+    let idx = 1
 
-    const produto = await this.prisma.produto.update({
-      where: { id },
-      data: {
-        ...(dados.nome      && { nome: dados.nome }),
-        ...(dados.categoria && { categoria: dados.categoria }),
-        ...(dados.cor       !== undefined && { cor: dados.cor }),
-        ...(dados.preco     && { preco: dados.preco }),
-        ...(dados.custo     && { custo: dados.custo }),
-        ...(dados.minimo    !== undefined && { minimo: dados.minimo }),
-      },
-    })
-    return { ...produto, preco: Number(produto.preco), custo: Number(produto.custo), status: this.calcularStatus(produto.estoque, produto.minimo) }
+    const mapa: Record<string, string> = {
+      nome: 'nome', categoria: 'categoria', cor: 'cor',
+      preco: 'preco', custo: 'custo', minimo: 'minimo',
+    }
+    for (const [key, col] of Object.entries(mapa)) {
+      if (dados[key] !== undefined) {
+        sets.push(`"${col}" = $${idx++}`)
+        params.push(dados[key])
+      }
+    }
+    if (!sets.length) return this.buscarProduto(empresaId, id)
+
+    params.push(id)
+    const p = await this.db.queryOne<Produto>(
+      `UPDATE produtos SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+      params,
+    )
+    return { ...p, preco: Number(p.preco), custo: Number(p.custo), status: this.calcularStatus(p.estoque, p.minimo) }
   }
 
   async removerProduto(empresaId: string, id: string) {
     await this.buscarProduto(empresaId, id)
-    // Soft delete
-    await this.prisma.produto.update({ where: { id }, data: { ativo: false } })
+    await this.db.query(`UPDATE produtos SET ativo = false WHERE id = $1`, [id])
     return { message: 'Produto removido com sucesso.' }
   }
 
@@ -143,102 +139,93 @@ export class EstoqueService {
     const { produto_id, tipo, de, ate, page = 1, limit = 50 } = query
     const skip = (page - 1) * limit
 
-    const where: Prisma.MovimentacaoEstoqueWhereInput = {
-      empresaId,
-      ...(produto_id && { produtoId: produto_id }),
-      ...(tipo       && { tipo }),
-      ...((de || ate) && {
-        criadoEm: {
-          ...(de  && { gte: new Date(de)  }),
-          ...(ate && { lte: new Date(ate) }),
-        },
-      }),
-    }
+    const conds: string[] = [`m."empresaId" = $1`]
+    const params: unknown[] = [empresaId]
+    let idx = 2
 
-    const [data, total] = await Promise.all([
-      this.prisma.movimentacaoEstoque.findMany({
-        where,
-        include: {
-          produto: { select: { nome: true, sku: true } },
-          usuario: { select: { nome: true } },
-        },
-        orderBy: { criadoEm: 'desc' },
-        skip,
-        take: limit,
-      }),
-      this.prisma.movimentacaoEstoque.count({ where }),
+    if (produto_id) { conds.push(`m."produtoId" = $${idx++}`); params.push(produto_id) }
+    if (tipo)       { conds.push(`m.tipo = $${idx++}`);        params.push(tipo)        }
+    if (de)         { conds.push(`m."criadoEm" >= $${idx++}`); params.push(new Date(de))  }
+    if (ate)        { conds.push(`m."criadoEm" <= $${idx++}`); params.push(new Date(ate)) }
+
+    const where = conds.join(' AND ')
+
+    const [rows, countRow] = await Promise.all([
+      this.db.query<MovimentacaoEstoque & { produto_nome: string; produto_sku: string; usuario_nome: string | null }>(
+        `SELECT m.*, p.nome AS produto_nome, p.sku AS produto_sku, u.nome AS usuario_nome
+         FROM movimentacoes_estoque m
+         JOIN produtos p ON p.id = m."produtoId"
+         LEFT JOIN usuarios u ON u.id = m."usuarioId"
+         WHERE ${where}
+         ORDER BY m."criadoEm" DESC
+         LIMIT $${idx} OFFSET $${idx + 1}`,
+        [...params, limit, skip],
+      ),
+      this.db.queryOne<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM movimentacoes_estoque m WHERE ${where}`,
+        params,
+      ),
     ])
 
-    // Formata para o frontend
-    const dataFormatada = data.map(m => ({
+    const data = rows.map(m => ({
       id:          m.id,
-      data:        m.criadoEm.toLocaleDateString('pt-BR'),
-      produto:     m.produto.nome,
-      sku:         m.produto.sku,
+      data:        m.criadoEm instanceof Date ? m.criadoEm.toLocaleDateString('pt-BR') : m.criadoEm,
+      produto:     m.produto_nome,
+      sku:         m.produto_sku,
       tipo:        m.tipo.toLowerCase(),
       qtd:         m.quantidade,
-      responsavel: m.usuario?.nome ?? 'Sistema',
+      responsavel: m.usuario_nome ?? 'Sistema',
       origem:      m.origem ?? '—',
       obs:         m.obs,
     }))
 
-    return { data: dataFormatada, total, page, limit }
+    return { data, total: Number(countRow?.count ?? 0), page, limit }
   }
 
   async registrarMovimentacao(empresaId: string, dto: CreateMovimentacaoDto, usuarioId?: string) {
-    // Busca produto e bloqueia para atualização atômica
-    const produto = await this.prisma.produto.findFirst({
-      where: { id: dto.produto_id, empresaId, ativo: true },
-    })
+    const produto = await this.db.queryOne<Produto>(
+      `SELECT * FROM produtos WHERE id = $1 AND "empresaId" = $2 AND ativo = true`,
+      [dto.produto_id, empresaId],
+    )
     if (!produto) throw new NotFoundException('Produto não encontrado.')
 
-    // Valida: não pode sair mais do que tem no estoque
-    if (dto.tipo === TipoMovimento.SAIDA && Math.abs(dto.quantidade) > produto.estoque) {
+    if (dto.tipo === 'SAIDA' && Math.abs(dto.quantidade) > produto.estoque) {
       throw new BadRequestException(
         `Estoque insuficiente. Disponível: ${produto.estoque}, solicitado: ${Math.abs(dto.quantidade)}.`,
       )
     }
 
     const estoqueAntes  = produto.estoque
-    const estoqueDepois = estoqueAntes + dto.quantidade  // quantidade já vem com sinal correto
+    const estoqueDepois = estoqueAntes + dto.quantidade
+    const movId         = randomUUID()
 
-    // Atualiza estoque e cria movimentação atomicamente
-    const operacoes: any[] = [
-      this.prisma.produto.update({
-        where: { id: produto.id },
-        data:  { estoque: estoqueDepois },
-      }),
-      this.prisma.movimentacaoEstoque.create({
-        data: {
-          empresaId,
-          produtoId:    produto.id,
-          usuarioId:    usuarioId ?? null,
-          tipo:         dto.tipo,
-          quantidade:   dto.quantidade,
-          estoqueAntes,
-          estoqueDepois,
-          origem:       dto.origem,
-          obs:          dto.obs,
-        },
-        include: {
-          produto: { select: { nome: true, sku: true } },
-        },
-      }),
-    ]
-
-
-    const [, movimentacao] = await this.prisma.$transaction(operacoes)
+    const [, mov] = await this.db.transaction(async (client) => {
+      const p = await client.query(
+        `UPDATE produtos SET estoque = $1 WHERE id = $2 RETURNING *`,
+        [estoqueDepois, produto.id],
+      )
+      const m = await client.query(
+        `INSERT INTO movimentacoes_estoque
+           (id, "empresaId", "produtoId", "usuarioId", tipo, quantidade,
+            "estoqueAntes", "estoqueDepois", origem, obs)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         RETURNING *`,
+        [movId, empresaId, produto.id, usuarioId ?? null, dto.tipo, dto.quantidade,
+         estoqueAntes, estoqueDepois, dto.origem ?? null, dto.obs ?? null],
+      )
+      return [p.rows[0], m.rows[0]]
+    })
 
     return {
-      id:           movimentacao.id,
-      data:         movimentacao.criadoEm.toLocaleDateString('pt-BR'),
-      produto:      movimentacao.produto.nome,
-      sku:          movimentacao.produto.sku,
-      tipo:         movimentacao.tipo.toLowerCase(),
-      qtd:          movimentacao.quantidade,
+      id:           mov.id,
+      data:         mov.criadoEm instanceof Date ? mov.criadoEm.toLocaleDateString('pt-BR') : mov.criadoEm,
+      produto:      produto.nome,
+      sku:          produto.sku,
+      tipo:         mov.tipo.toLowerCase(),
+      qtd:          mov.quantidade,
       estoqueAntes,
       estoqueDepois,
-      origem:       movimentacao.origem,
+      origem:       mov.origem,
     }
   }
 
@@ -247,10 +234,10 @@ export class EstoqueService {
   // ══════════════════════════════════════════════════════════════════════════
 
   async resumo(empresaId: string) {
-    const produtos = await this.prisma.produto.findMany({
-      where: { empresaId, ativo: true },
-      select: { estoque: true, minimo: true, custo: true },
-    })
+    const produtos = await this.db.query<Pick<Produto, 'estoque' | 'minimo' | 'custo'>>(
+      `SELECT estoque, minimo, custo FROM produtos WHERE "empresaId" = $1 AND ativo = true`,
+      [empresaId],
+    )
 
     const totalSkus      = produtos.length
     const totalUnidades  = produtos.reduce((a, p) => a + p.estoque, 0)
@@ -265,8 +252,8 @@ export class EstoqueService {
   // ══════════════════════════════════════════════════════════════════════════
 
   private calcularStatus(estoque: number, minimo: number): 'ok' | 'low' | 'out' {
-    if (estoque <= 0)       return 'out'
-    if (estoque <= minimo)  return 'low'
+    if (estoque <= 0)      return 'out'
+    if (estoque <= minimo) return 'low'
     return 'ok'
   }
 }

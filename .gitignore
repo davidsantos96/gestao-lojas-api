@@ -7,6 +7,9 @@ uploads/
 *.log
 .DS_Store
 
+# Backups locais do banco — não versionar (podem conter dados sensíveis)
+backups/
+
 # Scripts com dados sensíveis — nunca versionar
 prisma/fix-*.sql
 prisma/create-*.env
