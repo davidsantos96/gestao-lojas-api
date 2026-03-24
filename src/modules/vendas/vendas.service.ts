@@ -45,6 +45,7 @@ export class VendasService {
           empresaId,
           usuarioId:      usuarioId ?? null,
           cliente:        dto.cliente ?? null,
+          clienteId:      dto.cliente_id ?? null,
           formaPagamento: dto.forma_pagamento as FormaPagamento,
           parcelas,
           totalBruto,
@@ -111,13 +112,14 @@ export class VendasService {
   }
 
   async listarVendas(empresaId: string, query: QueryVendasDto) {
-    const { data_de, data_ate, status, cliente, forma_pagamento, page = 1, limit = 50 } = query
+    const { data_de, data_ate, status, cliente, cliente_id, forma_pagamento, page = 1, limit = 50 } = query
     const skip = (Number(page) - 1) * Number(limit)
     const where: Prisma.VendaWhereInput = {
       empresaId,
       ...(status          && { status:          status.toUpperCase()          as StatusVenda     }),
       ...(forma_pagamento && { formaPagamento:   forma_pagamento.toUpperCase() as FormaPagamento  }),
       ...(cliente         && { cliente: { contains: cliente, mode: 'insensitive' } }),
+      ...(cliente_id      && { clienteId: cliente_id }),
       ...((data_de || data_ate) && { criadoEm: {
         ...(data_de  && { gte: new Date(data_de)              }),
         ...(data_ate && { lte: new Date(data_ate + 'T23:59:59') }),
@@ -240,6 +242,7 @@ export class VendasService {
       id:             v.id,
       numero:         v.numero,
       cliente:        v.cliente,
+      cliente_id:     v.clienteId,
       forma_pagamento: v.formaPagamento,
       parcelas:       v.parcelas,
       total_bruto:    +Number(v.totalBruto).toFixed(2),
