@@ -3,7 +3,7 @@ import {
   IsString, IsNotEmpty, IsEnum, IsOptional,
   IsNumber, IsPositive, IsInt, IsDateString, Min,
 } from 'class-validator'
-import { StatusConta, TipoLancamento } from '@prisma/client'
+import { StatusConta, TipoLancamento, StatusContaEnum, TipoLancamentoEnum } from '../../../database/entities'
 
 // ─── Conta a Pagar ────────────────────────────────────────────────────────────
 export class CreateContaPagarDto {
@@ -31,8 +31,8 @@ export class CreateContaPagarDto {
 export class UpdateContaPagarDto extends PartialType(CreateContaPagarDto) {}
 
 export class QueryContasPagarDto {
-  @ApiPropertyOptional({ enum: StatusConta })
-  @IsOptional() @IsEnum(StatusConta)
+  @ApiPropertyOptional({ enum: StatusContaEnum })
+  @IsOptional() @IsEnum(StatusContaEnum)
   status?: StatusConta
 
   @ApiPropertyOptional()
@@ -82,8 +82,8 @@ export class CreateContaReceberDto {
 export class UpdateContaReceberDto extends PartialType(CreateContaReceberDto) {}
 
 export class QueryContasReceberDto {
-  @ApiPropertyOptional({ enum: StatusConta })
-  @IsOptional() @IsEnum(StatusConta)
+  @ApiPropertyOptional({ enum: StatusContaEnum })
+  @IsOptional() @IsEnum(StatusContaEnum)
   status?: StatusConta
 
   @ApiPropertyOptional()
@@ -101,8 +101,8 @@ export class QueryContasReceberDto {
 
 // ─── Lançamento ───────────────────────────────────────────────────────────────
 export class CreateLancamentoDto {
-  @ApiProperty({ enum: TipoLancamento })
-  @IsEnum(TipoLancamento)
+  @ApiProperty({ enum: TipoLancamentoEnum })
+  @IsEnum(TipoLancamentoEnum)
   tipo: TipoLancamento
 
   @ApiProperty({ example: 'Vendas balcão — 1ª quinzena' })
@@ -128,8 +128,8 @@ export class CreateLancamentoDto {
 
 // ─── Filtros Lançamentos ─────────────────────────────────────────────────────
 export class QueryLancamentosDto {
-  @ApiPropertyOptional({ enum: TipoLancamento })
-  @IsOptional() @IsEnum(TipoLancamento)
+  @ApiPropertyOptional({ enum: TipoLancamentoEnum })
+  @IsOptional() @IsEnum(TipoLancamentoEnum)
   tipo?: TipoLancamento
 
   @ApiPropertyOptional({ example: '2026-01-01' })
