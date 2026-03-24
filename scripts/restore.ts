@@ -117,7 +117,8 @@ async function main() {
     console.log('\n✅  Restore concluído com sucesso.\n')
   } catch (err) {
     await client.query('ROLLBACK')
-    console.error('\n❌  Erro durante o restore — ROLLBACK executado:', err.message)
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('\n❌  Erro durante o restore — ROLLBACK executado:', msg)
     process.exit(1)
   } finally {
     client.release()
