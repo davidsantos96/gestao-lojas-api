@@ -3,7 +3,6 @@ import {
   HttpException, HttpStatus, Logger,
 } from '@nestjs/common'
 import { Request, Response } from 'express'
-import { Prisma } from '@prisma/client'
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -22,23 +21,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const res = exception.getResponse()
       message = typeof res === 'string' ? res : (res as any).message ?? message
 
-    } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
-      // Violação de unique constraint
-      if (exception.code === 'P2002') {
-        status  = HttpStatus.CONFLICT
-        const fields = (exception.meta?.target as string[])?.join(', ')
-        message = `Já existe um registro com ${fields || 'esses dados'}.`
-      }
-      // Registro não encontrado em relação
-      else if (exception.code === 'P2025') {
-        status  = HttpStatus.NOT_FOUND
-        message = 'Registro não encontrado.'
-      }
+    } else if ((exception as any)?.code === '23505') {
+      // pg: unique_violation
+      status  = HttpStatus.CONFLICT
+      message = 'Já existe um registro com esses dados.'
 
-    } else if (exception instanceof Prisma.PrismaClientValidationError) {
+    } else if ((exception as any)?.code === '23503') {
+      // pg: foreign_key_violation
       status  = HttpStatus.BAD_REQUEST
-      message = 'Dados inválidos para a operação solicitada.'
-      this.logger.warn(exception.message)
+      message = 'Referência inválida: registro relacionado não encontrado.'
 
     } else if (exception instanceof Error) {
       this.logger.error(exception.message, exception.stack)

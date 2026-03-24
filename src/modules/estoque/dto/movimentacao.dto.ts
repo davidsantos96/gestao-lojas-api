@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { IsString, IsNotEmpty, IsEnum, IsOptional, IsInt, IsNumber, NotEquals } from 'class-validator'
-import { TipoMovimento } from '@prisma/client'
+import { TipoMovimento, TipoMovimentoEnum } from '../../../database/entities'
 
 // ─── Registrar movimentação ───────────────────────────────────────────────────
 export class CreateMovimentacaoDto {
@@ -8,8 +8,8 @@ export class CreateMovimentacaoDto {
   @IsString() @IsNotEmpty()
   produto_id: string
 
-  @ApiProperty({ enum: TipoMovimento })
-  @IsEnum(TipoMovimento)
+  @ApiProperty({ enum: TipoMovimentoEnum })
+  @IsEnum(TipoMovimentoEnum)
   tipo: TipoMovimento
 
   @ApiProperty({ description: 'Positivo para ENTRADA, negativo para SAIDA/AJUSTE', example: 10 })
@@ -35,8 +35,8 @@ export class QueryMovimentacoesDto {
   @IsOptional() @IsString()
   produto_id?: string
 
-  @ApiPropertyOptional({ enum: TipoMovimento })
-  @IsOptional() @IsEnum(TipoMovimento)
+  @ApiPropertyOptional({ enum: TipoMovimentoEnum })
+  @IsOptional() @IsEnum(TipoMovimentoEnum)
   tipo?: TipoMovimento
 
   @ApiPropertyOptional({ example: '2026-01-01' })

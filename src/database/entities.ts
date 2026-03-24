@@ -10,6 +10,14 @@ export type TipoLancamento   = 'RECEITA' | 'DESPESA'
 export type FormaPagamento   = 'DINHEIRO' | 'PIX' | 'CARTAO_CREDITO' | 'CARTAO_DEBITO' | 'BOLETO' | 'OUTRO'
 export type StatusVenda      = 'CONCLUIDA' | 'CANCELADA'
 
+// Objetos em runtime para uso em @IsEnum() / @ApiProperty({ enum: ... })
+export const CategoriaEstoqueEnum = { VESTUARIO: 'VESTUARIO', CALCADOS: 'CALCADOS', ACESSORIOS: 'ACESSORIOS' } as const
+export const TipoMovimentoEnum    = { ENTRADA: 'ENTRADA', SAIDA: 'SAIDA', AJUSTE: 'AJUSTE' } as const
+export const StatusContaEnum      = { PENDENTE: 'PENDENTE', PAGO: 'PAGO', RECEBIDO: 'RECEBIDO', VENCIDO: 'VENCIDO', CANCELADO: 'CANCELADO' } as const
+export const TipoLancamentoEnum   = { RECEITA: 'RECEITA', DESPESA: 'DESPESA' } as const
+export const FormaPagamentoEnum   = { DINHEIRO: 'DINHEIRO', PIX: 'PIX', CARTAO_CREDITO: 'CARTAO_CREDITO', CARTAO_DEBITO: 'CARTAO_DEBITO', BOLETO: 'BOLETO', OUTRO: 'OUTRO' } as const
+export const StatusVendaEnum      = { CONCLUIDA: 'CONCLUIDA', CANCELADA: 'CANCELADA' } as const
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Interfaces de entidade (colunas retornadas pelo pg com seus tipos nativos)
 // Nota: colunas DECIMAL/NUMERIC voltam como string no pg — use Number() ao expor.
