@@ -80,7 +80,7 @@ apply_migration() {
 }
 
 echo "=== Aplicando migrations SQL ==="
-for f in /app/prisma/migrations/*.sql; do
+for f in /app/db/migrations/*.sql; do
   apply_migration "$f"
 done
 echo "=== Migrations concluídas ==="
