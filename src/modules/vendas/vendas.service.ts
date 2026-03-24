@@ -1,19 +1,21 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'
-import { PrismaService } from '../../prisma/prisma.service'
+﻿import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'
+import { DatabaseService } from '../../database/database.service'
+import { Venda, ItemVenda, Produto, FormaPagamento, StatusVenda } from '../../database/entities'
 import { CreateVendaDto, QueryVendasDto } from './dto/vendas.dto'
-import { TipoMovimento, StatusVenda, TipoLancamento, FormaPagamento, StatusConta, Prisma } from '@prisma/client'
+import { randomUUID } from 'crypto'
 
 @Injectable()
 export class VendasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly db: DatabaseService) {}
 
   async criarVenda(empresaId: string, dto: CreateVendaDto, usuarioId?: string) {
     if (!dto.itens?.length) throw new BadRequestException('A venda deve ter pelo menos 1 item.')
 
     const produtoIds = dto.itens.map(i => i.produto_id)
-    const produtos   = await this.prisma.produto.findMany({
-      where: { id: { in: produtoIds }, empresaId, ativo: true },
-    })
+    const produtos = await this.db.query<Produto>(
+      `SELECT * FROM produtos WHERE id = ANY($1::text[]) AND "empresaId" = $2 AND ativo = true`,
+      [produtoIds, empresaId],
+    )
 
     if (produtos.length !== produtoIds.length)
       throw new BadRequestException('Um ou mais produtos não encontrados.')
@@ -22,15 +24,15 @@ export class VendasService {
       const produto = produtos.find(p => p.id === item.produto_id)
       if (produto.estoque < item.quantidade)
         throw new BadRequestException(
-          `Estoque insuficiente para "${produto.nome}". Disponível: ${produto.estoque}, solicitado: ${item.quantidade}.`
+          `Estoque insuficiente para "${produto.nome}". Disponível: ${produto.estoque}, solicitado: ${item.quantidade}.`,
         )
     }
 
     const itensCalc = dto.itens.map(item => {
-      const produto    = produtos.find(p => p.id === item.produto_id)
-      const preco      = item.preco_unitario ?? Number(produto.preco)
-      const desc       = item.desconto ?? 0
-      const subtotal   = preco * item.quantidade - desc
+      const produto     = produtos.find(p => p.id === item.produto_id)
+      const preco       = item.preco_unitario ?? Number(produto.preco)
+      const desc        = item.desconto ?? 0
+      const subtotal    = preco * item.quantidade - desc
       return { ...item, produto, preco_unitario: preco, desconto: desc, subtotal }
     })
 
@@ -38,142 +40,189 @@ export class VendasService {
     const descontoGlobal = dto.desconto ?? 0
     const totalLiquido   = totalBruto - descontoGlobal
     const parcelas       = dto.parcelas ?? 1
+    const pagoNaHora     = ['DINHEIRO', 'PIX', 'CARTAO_DEBITO'].includes(dto.forma_pagamento)
 
-    const venda = await this.prisma.$transaction(async (tx) => {
-      const novaVenda = await tx.venda.create({
-        data: {
-          empresaId,
-          usuarioId:      usuarioId ?? null,
-          cliente:        dto.cliente ?? null,
-          formaPagamento: dto.forma_pagamento as FormaPagamento,
-          parcelas,
-          totalBruto,
-          desconto:       descontoGlobal,
-          totalLiquido,
-          status:         StatusVenda.CONCLUIDA,
-          obs:            dto.obs ?? null,
-          itens: {
-            create: itensCalc.map(i => ({
-              produtoId:     i.produto_id,
-              quantidade:    i.quantidade,
-              precoUnitario: i.preco_unitario,
-              desconto:      i.desconto,
-              subtotal:      i.subtotal,
-            })),
-          },
-        },
-        include: {
-          itens: { include: { produto: { select: { nome: true, sku: true } } } },
-        },
-      })
+    const venda = await this.db.transaction(async (client) => {
+      const vendaId = randomUUID()
 
+      const vendaRow = await client.query<Venda>(
+        `INSERT INTO vendas
+           (id, "empresaId", "usuarioId", cliente, "clienteId", "formaPagamento",
+            parcelas, "totalBruto", desconto, "totalLiquido", status, obs)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'CONCLUIDA',$11)
+         RETURNING *`,
+        [vendaId, empresaId, usuarioId ?? null, dto.cliente ?? null, dto.cliente_id ?? null,
+         dto.forma_pagamento, parcelas, totalBruto, descontoGlobal, totalLiquido, dto.obs ?? null],
+      )
+      const novaVenda = vendaRow.rows[0]
+
+      // Itens + movimentações por produto
+      const itensOut: (ItemVenda & { produto_nome: string; produto_sku: string })[] = []
       for (const item of itensCalc) {
-        const estoqueAntes  = item.produto.estoque
+        const itemId       = randomUUID()
+        const estoqueAntes = item.produto.estoque
         const estoqueDepois = estoqueAntes - item.quantidade
-        await tx.produto.update({ where: { id: item.produto_id }, data: { estoque: estoqueDepois } })
-        await tx.movimentacaoEstoque.create({
-          data: {
-            empresaId, produtoId: item.produto_id, usuarioId: usuarioId ?? null,
-            tipo: TipoMovimento.SAIDA, quantidade: -item.quantidade,
-            estoqueAntes, estoqueDepois, origem: `Venda #${novaVenda.numero}`,
-            obs: dto.cliente ? `Cliente: ${dto.cliente}` : null,
-          },
-        })
+
+        const itemRow = await client.query<ItemVenda>(
+          `INSERT INTO itens_venda (id, "vendaId", "produtoId", quantidade, "precoUnitario", desconto, subtotal)
+           VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+          [itemId, vendaId, item.produto_id, item.quantidade, item.preco_unitario, item.desconto, item.subtotal],
+        )
+        itensOut.push({ ...itemRow.rows[0], produto_nome: item.produto.nome, produto_sku: item.produto.sku })
+
+        await client.query(
+          `UPDATE produtos SET estoque = $1 WHERE id = $2`,
+          [estoqueDepois, item.produto_id],
+        )
+        await client.query(
+          `INSERT INTO movimentacoes_estoque
+             (id, "empresaId", "produtoId", "usuarioId", tipo, quantidade,
+              "estoqueAntes", "estoqueDepois", origem, obs)
+           VALUES ($1,$2,$3,$4,'SAIDA',$5,$6,$7,$8,$9)`,
+          [randomUUID(), empresaId, item.produto_id, usuarioId ?? null,
+           -item.quantidade, estoqueAntes, estoqueDepois,
+           `Venda #${novaVenda.numero}`,
+           dto.cliente ? `Cliente: ${dto.cliente}` : null],
+        )
       }
 
-      await tx.lancamento.create({
-        data: {
-          empresaId, usuarioId: usuarioId ?? null,
-          tipo: TipoLancamento.RECEITA,
-          descricao: `Venda #${novaVenda.numero}${dto.cliente ? ` — ${dto.cliente}` : ''}`,
-          valor: totalLiquido, data: new Date(),
-        },
-      })
+      // Lançamento financeiro
+      await client.query(
+        `INSERT INTO lancamentos (id, "empresaId", "usuarioId", tipo, descricao, valor, data)
+         VALUES ($1,$2,$3,'RECEITA',$4,$5,$6)`,
+        [randomUUID(), empresaId, usuarioId ?? null,
+         `Venda #${novaVenda.numero}${dto.cliente ? ` — ${dto.cliente}` : ''}`,
+         totalLiquido, new Date()],
+      )
 
-      const pagoNaHora = ['DINHEIRO', 'PIX', 'CARTAO_DEBITO'].includes(dto.forma_pagamento)
-      await tx.contaReceber.create({
-        data: {
-          empresaId,
-          descricao:  `Venda #${novaVenda.numero}${dto.cliente ? ` — ${dto.cliente}` : ''}`,
-          cliente:    dto.cliente ?? null,
-          valor:      totalLiquido,
-          vencimento: new Date(),
-          status:     pagoNaHora ? StatusConta.RECEBIDO : StatusConta.PENDENTE,
-          recebidoEm: pagoNaHora ? new Date() : null,
-          obs:        `${dto.forma_pagamento}${parcelas > 1 ? ` ${parcelas}x` : ''}`,
-        },
-      })
+      // Conta a receber
+      await client.query(
+        `INSERT INTO contas_receber
+           (id, "empresaId", descricao, cliente, valor, vencimento, status, "recebidoEm", obs)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [randomUUID(), empresaId,
+         `Venda #${novaVenda.numero}${dto.cliente ? ` — ${dto.cliente}` : ''}`,
+         dto.cliente ?? null, totalLiquido, new Date(),
+         pagoNaHora ? 'RECEBIDO' : 'PENDENTE',
+         pagoNaHora ? new Date() : null,
+         `${dto.forma_pagamento}${parcelas > 1 ? ` ${parcelas}x` : ''}`],
+      )
 
-      return novaVenda
+      return { ...novaVenda, itens: itensOut }
     })
 
     return this.fmt(venda)
   }
 
   async listarVendas(empresaId: string, query: QueryVendasDto) {
-    const { data_de, data_ate, status, cliente, forma_pagamento, page = 1, limit = 50 } = query
+    const { data_de, data_ate, status, cliente, cliente_id, forma_pagamento, page = 1, limit = 50 } = query
     const skip = (Number(page) - 1) * Number(limit)
-    const where: Prisma.VendaWhereInput = {
-      empresaId,
-      ...(status          && { status:          status.toUpperCase()          as StatusVenda     }),
-      ...(forma_pagamento && { formaPagamento:   forma_pagamento.toUpperCase() as FormaPagamento  }),
-      ...(cliente         && { cliente: { contains: cliente, mode: 'insensitive' } }),
-      ...((data_de || data_ate) && { criadoEm: {
-        ...(data_de  && { gte: new Date(data_de)              }),
-        ...(data_ate && { lte: new Date(data_ate + 'T23:59:59') }),
-      }}),
-    }
 
-    const [data, total] = await Promise.all([
-      this.prisma.venda.findMany({
-        where,
-        include: { itens: { include: { produto: { select: { nome: true, sku: true } } } } },
-        orderBy: { criadoEm: 'desc' },
-        skip, take: Number(limit),
-      }),
-      this.prisma.venda.count({ where }),
+    const conds: string[] = [`v."empresaId" = $1`]
+    const params: unknown[] = [empresaId]
+    let idx = 2
+
+    if (status)          { conds.push(`v.status = $${idx++}`);              params.push(status.toUpperCase())          }
+    if (forma_pagamento) { conds.push(`v."formaPagamento" = $${idx++}`);    params.push(forma_pagamento.toUpperCase()) }
+    if (cliente)         { conds.push(`v.cliente ILIKE $${idx++}`);         params.push(`%${cliente}%`)                }
+    if (cliente_id)      { conds.push(`v."clienteId" = $${idx++}`);         params.push(cliente_id)                    }
+    if (data_de)         { conds.push(`v."criadoEm" >= $${idx++}`);         params.push(new Date(data_de))             }
+    if (data_ate)        { conds.push(`v."criadoEm" <= $${idx++}`);         params.push(new Date(data_ate + 'T23:59:59')) }
+
+    const where = conds.join(' AND ')
+
+    const [rows, countRow] = await Promise.all([
+      this.db.query<Venda & { itens: any[] }>(
+        `SELECT v.* FROM vendas v WHERE ${where} ORDER BY v."criadoEm" DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+        [...params, Number(limit), skip],
+      ),
+      this.db.queryOne<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM vendas v WHERE ${where}`,
+        params,
+      ),
     ])
 
-    return { data: data.map(v => this.fmt(v)), total, page: Number(page), limit: Number(limit) }
+    const vendaIds = rows.map(v => v.id)
+    const itens = vendaIds.length
+      ? await this.db.query<ItemVenda & { produto_nome: string; produto_sku: string; produto_cor: string }>(
+          `SELECT iv.*, p.nome AS produto_nome, p.sku AS produto_sku, p.cor AS produto_cor
+           FROM itens_venda iv
+           JOIN produtos p ON p.id = iv."produtoId"
+           WHERE iv."vendaId" = ANY($1::text[])`,
+          [vendaIds],
+        )
+      : []
+
+    const data = rows.map(v => ({
+      ...v,
+      itens: itens.filter(i => i.vendaId === v.id),
+    })).map(v => this.fmt(v))
+
+    return { data, total: Number(countRow?.count ?? 0), page: Number(page), limit: Number(limit) }
   }
 
   async buscarVenda(empresaId: string, id: string) {
-    const venda = await this.prisma.venda.findFirst({
-      where: { id, empresaId },
-      include: { itens: { include: { produto: { select: { nome: true, sku: true, cor: true } } } } },
-    })
+    const venda = await this.db.queryOne<Venda>(
+      `SELECT * FROM vendas WHERE id = $1 AND "empresaId" = $2`, [id, empresaId],
+    )
     if (!venda) throw new NotFoundException('Venda não encontrada.')
-    return this.fmt(venda)
+
+    const itens = await this.db.query<ItemVenda & { produto_nome: string; produto_sku: string; produto_cor: string }>(
+      `SELECT iv.*, p.nome AS produto_nome, p.sku AS produto_sku, p.cor AS produto_cor
+       FROM itens_venda iv JOIN produtos p ON p.id = iv."produtoId"
+       WHERE iv."vendaId" = $1`,
+      [id],
+    )
+    return this.fmt({ ...venda, itens })
   }
 
   async cancelarVenda(empresaId: string, id: string, usuarioId?: string) {
-    const venda = await this.prisma.venda.findFirst({ where: { id, empresaId }, include: { itens: true } })
-    if (!venda)                           throw new NotFoundException('Venda não encontrada.')
-    if (venda.status === StatusVenda.CANCELADA) throw new BadRequestException('Venda já cancelada.')
+    const venda = await this.db.queryOne<Venda>(
+      `SELECT * FROM vendas WHERE id = $1 AND "empresaId" = $2`, [id, empresaId],
+    )
+    if (!venda)                        throw new NotFoundException('Venda não encontrada.')
+    if (venda.status === 'CANCELADA')  throw new BadRequestException('Venda já cancelada.')
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.venda.update({ where: { id }, data: { status: StatusVenda.CANCELADA } })
+    const itens = await this.db.query<ItemVenda>(
+      `SELECT * FROM itens_venda WHERE "vendaId" = $1`, [id],
+    )
 
-      for (const item of venda.itens) {
-        const p = await tx.produto.findUnique({ where: { id: item.produtoId } })
-        await tx.produto.update({ where: { id: item.produtoId }, data: { estoque: p.estoque + item.quantidade } })
-        await tx.movimentacaoEstoque.create({
-          data: {
-            empresaId, produtoId: item.produtoId, usuarioId: usuarioId ?? null,
-            tipo: TipoMovimento.AJUSTE, quantidade: item.quantidade,
-            estoqueAntes: p.estoque, estoqueDepois: p.estoque + item.quantidade,
-            origem: `Cancelamento Venda #${venda.numero}`,
-          },
-        })
+    await this.db.transaction(async (client) => {
+      await client.query(`UPDATE vendas SET status = 'CANCELADA' WHERE id = $1`, [id])
+
+      for (const item of itens) {
+        const pRow = await client.query<Produto>(
+          `SELECT * FROM produtos WHERE id = $1`, [item.produtoId],
+        )
+        const p = pRow.rows[0]
+        const estoqueDepois = p.estoque + item.quantidade
+
+        await client.query(
+          `UPDATE produtos SET estoque = $1 WHERE id = $2`,
+          [estoqueDepois, item.produtoId],
+        )
+        await client.query(
+          `INSERT INTO movimentacoes_estoque
+             (id, "empresaId", "produtoId", "usuarioId", tipo, quantidade,
+              "estoqueAntes", "estoqueDepois", origem)
+           VALUES ($1,$2,$3,$4,'AJUSTE',$5,$6,$7,$8)`,
+          [randomUUID(), empresaId, item.produtoId, usuarioId ?? null,
+           item.quantidade, p.estoque, estoqueDepois,
+           `Cancelamento Venda #${venda.numero}`],
+        )
       }
 
-      await tx.lancamento.create({
-        data: {
-          empresaId, tipo: TipoLancamento.DESPESA,
-          descricao: `Estorno Venda #${venda.numero}`,
-          valor: Number(venda.totalLiquido), data: new Date(),
-        },
-      })
+      await client.query(
+        `DELETE FROM lancamentos
+         WHERE "empresaId" = $1 AND tipo = 'RECEITA'
+           AND (descricao LIKE $2 OR descricao LIKE $3)`,
+        [empresaId, `Venda #${venda.numero}%`, `Recebimento: Venda #${venda.numero}%`],
+      )
+      await client.query(
+        `UPDATE contas_receber SET status = 'CANCELADO'
+         WHERE "empresaId" = $1 AND descricao LIKE $2`,
+        [empresaId, `Venda #${venda.numero}%`],
+      )
     })
 
     return { message: `Venda #${venda.numero} cancelada e estoque estornado.` }
@@ -181,66 +230,82 @@ export class VendasService {
 
   async resumo(empresaId: string, query: { data_de?: string; data_ate?: string }) {
     const hoje   = new Date()
-    const inicio = query.data_de  ? new Date(query.data_de)                 : new Date(hoje.getFullYear(), hoje.getMonth(), 1)
-    const fim    = query.data_ate ? new Date(query.data_ate + 'T23:59:59')  : new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59)
-    const where: Prisma.VendaWhereInput = { empresaId, status: StatusVenda.CONCLUIDA, criadoEm: { gte: inicio, lte: fim } }
+    const inicio = query.data_de  ? new Date(query.data_de)                : new Date(hoje.getFullYear(), hoje.getMonth(), 1)
+    const fim    = query.data_ate ? new Date(query.data_ate + 'T23:59:59') : new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59)
 
-    const [agg, total] = await Promise.all([
-      this.prisma.venda.aggregate({ where, _sum: { totalLiquido: true }, _count: { id: true }, _avg: { totalLiquido: true } }),
-      this.prisma.venda.count({ where: { empresaId, status: StatusVenda.CONCLUIDA } }),
+    const [aggRow, totalRow] = await Promise.all([
+      this.db.queryOne<{ receita: string; total_vendas: string; ticket_medio: string }>(
+        `SELECT SUM("totalLiquido") AS receita, COUNT(*) AS total_vendas, AVG("totalLiquido") AS ticket_medio
+         FROM vendas
+         WHERE "empresaId" = $1 AND status = 'CONCLUIDA' AND "criadoEm" >= $2 AND "criadoEm" <= $3`,
+        [empresaId, inicio, fim],
+      ),
+      this.db.queryOne<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM vendas WHERE "empresaId" = $1 AND status = 'CONCLUIDA'`,
+        [empresaId],
+      ),
     ])
 
     return {
-      receita:         +Number(agg._sum.totalLiquido ?? 0).toFixed(2),
-      total_vendas:    agg._count.id,
-      ticket_medio:    +Number(agg._avg.totalLiquido ?? 0).toFixed(2),
-      total_historico: total,
+      receita:         +Number(aggRow?.receita       ?? 0).toFixed(2),
+      total_vendas:    Number(aggRow?.total_vendas   ?? 0),
+      ticket_medio:    +Number(aggRow?.ticket_medio  ?? 0).toFixed(2),
+      total_historico: Number(totalRow?.count        ?? 0),
     }
   }
 
   async rankingProdutos(empresaId: string, query: { data_de?: string; data_ate?: string; top?: number }) {
     const hoje   = new Date()
-    const inicio = query.data_de  ? new Date(query.data_de)                 : new Date(hoje.getFullYear(), hoje.getMonth(), 1)
-    const fim    = query.data_ate ? new Date(query.data_ate + 'T23:59:59')  : new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59)
+    const inicio = query.data_de  ? new Date(query.data_de)                : new Date(hoje.getFullYear(), hoje.getMonth(), 1)
+    const fim    = query.data_ate ? new Date(query.data_ate + 'T23:59:59') : new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59)
+    const top    = query.top ?? 10
 
-    const itens = await this.prisma.itemVenda.findMany({
-      where: { venda: { empresaId, status: StatusVenda.CONCLUIDA, criadoEm: { gte: inicio, lte: fim } } },
-      include: { produto: { select: { nome: true, sku: true, cor: true } } },
-    })
+    const rows = await this.db.query<{
+      id: string; nome: string; sku: string; cor: string; quantidade: string; receita: string
+    }>(
+      `SELECT iv."produtoId" AS id, p.nome, p.sku, p.cor,
+              SUM(iv.quantidade) AS quantidade, SUM(iv.subtotal) AS receita
+       FROM itens_venda iv
+       JOIN vendas v ON v.id = iv."vendaId"
+       JOIN produtos p ON p.id = iv."produtoId"
+       WHERE v."empresaId" = $1 AND v.status = 'CONCLUIDA'
+         AND v."criadoEm" >= $2 AND v."criadoEm" <= $3
+       GROUP BY iv."produtoId", p.nome, p.sku, p.cor
+       ORDER BY quantidade DESC
+       LIMIT $4`,
+      [empresaId, inicio, fim, top],
+    )
 
-    const mapa = new Map<string, { nome: string; sku: string; cor: string; quantidade: number; receita: number }>()
-    for (const item of itens) {
-      const k = item.produtoId
-      if (!mapa.has(k)) mapa.set(k, { nome: item.produto.nome, sku: item.produto.sku, cor: item.produto.cor, quantidade: 0, receita: 0 })
-      const cur = mapa.get(k)
-      cur.quantidade += item.quantidade
-      cur.receita    += Number(item.subtotal)
-    }
-
-    return Array.from(mapa.entries())
-      .map(([id, v]) => ({ id, ...v, receita: +v.receita.toFixed(2) }))
-      .sort((a, b) => b.quantidade - a.quantidade)
-      .slice(0, query.top ?? 10)
+    return rows.map(r => ({
+      id:         r.id,
+      nome:       r.nome,
+      sku:        r.sku,
+      cor:        r.cor,
+      quantidade: Number(r.quantidade),
+      receita:    +Number(r.receita).toFixed(2),
+    }))
   }
 
   private fmt(v: any) {
     return {
-      id:             v.id,
-      numero:         v.numero,
-      cliente:        v.cliente,
+      id:              v.id,
+      numero:          v.numero,
+      cliente:         v.cliente,
+      cliente_id:      v.clienteId,
       forma_pagamento: v.formaPagamento,
-      parcelas:       v.parcelas,
-      total_bruto:    +Number(v.totalBruto).toFixed(2),
-      desconto:       +Number(v.desconto).toFixed(2),
-      total_liquido:  +Number(v.totalLiquido).toFixed(2),
-      status:         v.status.toLowerCase(),
-      obs:            v.obs,
-      criado_em:      v.criadoEm,
+      parcelas:        v.parcelas,
+      total_bruto:     +Number(v.totalBruto).toFixed(2),
+      desconto:        +Number(v.desconto).toFixed(2),
+      total_liquido:   +Number(v.totalLiquido).toFixed(2),
+      status:          v.status,
+      obs:             v.obs,
+      criadoEm:        v.criadoEm,
       itens: (v.itens ?? []).map((i: any) => ({
         id:             i.id,
         produto_id:     i.produtoId,
-        produto_nome:   i.produto?.nome,
-        produto_sku:    i.produto?.sku,
+        produto:        i.produto_nome ?? i.produto?.nome,
+        sku:            i.produto_sku  ?? i.produto?.sku,
+        cor:            i.produto_cor  ?? i.produto?.cor,
         quantidade:     i.quantidade,
         preco_unitario: +Number(i.precoUnitario).toFixed(2),
         desconto:       +Number(i.desconto).toFixed(2),

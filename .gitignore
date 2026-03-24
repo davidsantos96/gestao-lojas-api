@@ -1,10 +1,14 @@
 node_modules/
 dist/
 .env
-.env.local
+.env.*
+!.env.example
 uploads/
 *.log
 .DS_Store
+
+# Backups locais do banco — não versionar (podem conter dados sensíveis)
+backups/
 
 # Scripts com dados sensíveis — nunca versionar
 prisma/fix-*.sql

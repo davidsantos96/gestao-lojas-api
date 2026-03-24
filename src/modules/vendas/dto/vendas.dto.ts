@@ -28,6 +28,9 @@ export class CreateVendaDto {
   @IsOptional() @IsString()
   cliente?: string
 
+  @IsOptional() @IsString()
+  cliente_id?: string
+
   @IsEnum(FormaPagamentoDto)
   forma_pagamento: FormaPagamentoDto
 
@@ -51,6 +54,7 @@ export class QueryVendasDto {
   @IsOptional() data_ate?: string
   @IsOptional() status?: string
   @IsOptional() cliente?: string
+  @IsOptional() cliente_id?: string
   @IsOptional() forma_pagamento?: string
   @IsOptional() page?: number
   @IsOptional() limit?: number

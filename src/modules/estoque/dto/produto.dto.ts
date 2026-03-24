@@ -3,7 +3,7 @@ import {
   IsString, IsNotEmpty, IsEnum, IsOptional,
   IsNumber, IsPositive, IsInt, Min,
 } from 'class-validator'
-import { CategoriaEstoque } from '@prisma/client'
+import { CategoriaEstoque, CategoriaEstoqueEnum } from '../../../database/entities'
 
 // ─── Criar produto ────────────────────────────────────────────────────────────
 export class CreateProdutoDto {
@@ -15,8 +15,8 @@ export class CreateProdutoDto {
   @IsString() @IsNotEmpty()
   nome: string
 
-  @ApiProperty({ enum: CategoriaEstoque })
-  @IsEnum(CategoriaEstoque)
+  @ApiProperty({ enum: CategoriaEstoqueEnum })
+  @IsEnum(CategoriaEstoqueEnum)
   categoria: CategoriaEstoque
 
   @ApiPropertyOptional({ example: 'Preto' })
@@ -49,8 +49,8 @@ export class QueryProdutosDto {
   @IsOptional() @IsString()
   busca?: string
 
-  @ApiPropertyOptional({ enum: CategoriaEstoque })
-  @IsOptional() @IsEnum(CategoriaEstoque)
+  @ApiPropertyOptional({ enum: CategoriaEstoqueEnum })
+  @IsOptional() @IsEnum(CategoriaEstoqueEnum)
   categoria?: CategoriaEstoque
 
   @ApiPropertyOptional({ enum: ['ok', 'low', 'out'] })
