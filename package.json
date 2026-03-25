@@ -11,6 +11,7 @@
     "start:debug": "nest start --debug --watch",
     "db:snapshot": "ts-node --project tsconfig.scripts.json scripts/snapshot.ts",
     "db:restore": "ts-node --project tsconfig.scripts.json scripts/restore.ts",
+    "db:set-password": "ts-node --project tsconfig.scripts.json scripts/set-password.ts",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
