@@ -52,6 +52,16 @@ export class VendasService {
       )
       if (!clienteRow) throw new BadRequestException('Cliente não encontrado.')
       clienteNome = clienteRow.nome
+    } else if (clienteNome) {
+      // Fallback: tenta vincular pelo nome quando cliente_id não é enviado
+      const clienteRow = await this.db.queryOne<Cliente>(
+        `SELECT id, nome FROM clientes WHERE "empresaId" = $1 AND LOWER(TRIM(nome)) = LOWER(TRIM($2)) LIMIT 1`,
+        [empresaId, clienteNome],
+      )
+      if (clienteRow) {
+        clienteId   = clienteRow.id
+        clienteNome = clienteRow.nome
+      }
     }
 
     const venda = await this.db.transaction(async (client) => {
