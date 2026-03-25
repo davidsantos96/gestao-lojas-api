@@ -1,6 +1,6 @@
 ﻿import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'
 import { DatabaseService } from '../../database/database.service'
-import { Venda, ItemVenda, Produto, FormaPagamento, StatusVenda } from '../../database/entities'
+import { Venda, ItemVenda, Produto, FormaPagamento, StatusVenda, Cliente } from '../../database/entities'
 import { CreateVendaDto, QueryVendasDto } from './dto/vendas.dto'
 import { randomUUID } from 'crypto'
 
@@ -42,6 +42,18 @@ export class VendasService {
     const parcelas       = dto.parcelas ?? 1
     const pagoNaHora     = ['DINHEIRO', 'PIX', 'CARTAO_DEBITO'].includes(dto.forma_pagamento)
 
+    // Resolve cliente cadastrado: valida que pertence à empresa e usa o nome oficial
+    let clienteId: string | null = dto.cliente_id ?? null
+    let clienteNome: string | null = dto.cliente ?? null
+    if (clienteId) {
+      const clienteRow = await this.db.queryOne<Cliente>(
+        `SELECT id, nome FROM clientes WHERE id = $1 AND "empresaId" = $2`,
+        [clienteId, empresaId],
+      )
+      if (!clienteRow) throw new BadRequestException('Cliente não encontrado.')
+      clienteNome = clienteRow.nome
+    }
+
     const venda = await this.db.transaction(async (client) => {
       const vendaId = randomUUID()
 
@@ -51,7 +63,7 @@ export class VendasService {
             parcelas, "totalBruto", desconto, "totalLiquido", status, obs)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'CONCLUIDA',$11)
          RETURNING *`,
-        [vendaId, empresaId, usuarioId ?? null, dto.cliente ?? null, dto.cliente_id ?? null,
+        [vendaId, empresaId, usuarioId ?? null, clienteNome, clienteId,
          dto.forma_pagamento, parcelas, totalBruto, descontoGlobal, totalLiquido, dto.obs ?? null],
       )
       const novaVenda = vendaRow.rows[0]
@@ -82,7 +94,7 @@ export class VendasService {
           [randomUUID(), empresaId, item.produto_id, usuarioId ?? null,
            -item.quantidade, estoqueAntes, estoqueDepois,
            `Venda #${novaVenda.numero}`,
-           dto.cliente ? `Cliente: ${dto.cliente}` : null],
+           clienteNome ? `Cliente: ${clienteNome}` : null],
         )
       }
 
@@ -91,7 +103,7 @@ export class VendasService {
         `INSERT INTO lancamentos (id, "empresaId", "usuarioId", tipo, descricao, valor, data)
          VALUES ($1,$2,$3,'RECEITA',$4,$5,$6)`,
         [randomUUID(), empresaId, usuarioId ?? null,
-         `Venda #${novaVenda.numero}${dto.cliente ? ` — ${dto.cliente}` : ''}`,
+         `Venda #${novaVenda.numero}${clienteNome ? ` — ${clienteNome}` : ''}`,
          totalLiquido, new Date()],
       )
 
@@ -101,8 +113,8 @@ export class VendasService {
            (id, "empresaId", descricao, cliente, valor, vencimento, status, "recebidoEm", obs)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [randomUUID(), empresaId,
-         `Venda #${novaVenda.numero}${dto.cliente ? ` — ${dto.cliente}` : ''}`,
-         dto.cliente ?? null, totalLiquido, new Date(),
+         `Venda #${novaVenda.numero}${clienteNome ? ` — ${clienteNome}` : ''}`,
+         clienteNome ?? null, totalLiquido, new Date(),
          pagoNaHora ? 'RECEBIDO' : 'PENDENTE',
          pagoNaHora ? new Date() : null,
          `${dto.forma_pagamento}${parcelas > 1 ? ` ${parcelas}x` : ''}`],
