@@ -48,6 +48,18 @@ CREATE TRIGGER vendas_updated_at
   BEFORE UPDATE ON "vendas"
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ── Retroativamente vincular vendas existentes ao clienteId ─────────────────
+-- Vendas criadas antes da correção têm "clienteId" NULL mas o campo texto
+-- "cliente" pode bater com o nome de um cliente cadastrado na mesma empresa.
+-- Este UPDATE liga esses registros sem sobrescrever vendas que já têm clienteId.
+UPDATE "vendas" v
+SET "clienteId" = c.id
+FROM "clientes" c
+WHERE v."clienteId" IS NULL
+  AND v.cliente IS NOT NULL
+  AND v."empresaId" = c."empresaId"
+  AND LOWER(TRIM(v.cliente)) = LOWER(TRIM(c.nome));
+
 -- ── Corrigir id inválido da empresa "Flor de Liz" ────────────────────────────
 -- O id 'empresa-demo' não é um UUID válido e pode causar problemas.
 -- ON UPDATE CASCADE propaga o novo id para todas as tabelas filhas automaticamente.
