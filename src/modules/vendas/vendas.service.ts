@@ -43,7 +43,7 @@ export class VendasService {
     const pagoNaHora     = ['DINHEIRO', 'PIX', 'CARTAO_DEBITO'].includes(dto.forma_pagamento)
 
     // Resolve cliente cadastrado: valida que pertence à empresa e usa o nome oficial
-    let clienteId: string | null = dto.cliente_id ?? null
+    let clienteId: string | null = dto.cliente_id ?? dto.clienteId ?? null
     let clienteNome: string | null = dto.cliente ?? null
     if (clienteId) {
       const clienteRow = await this.db.queryOne<Cliente>(

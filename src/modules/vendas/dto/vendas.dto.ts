@@ -31,6 +31,10 @@ export class CreateVendaDto {
   @IsOptional() @IsString()
   cliente_id?: string
 
+  // Alias camelCase enviado pelo frontend
+  @IsOptional() @IsString()
+  clienteId?: string
+
   @IsEnum(FormaPagamentoDto)
   forma_pagamento: FormaPagamentoDto
 
