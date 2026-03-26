@@ -105,8 +105,18 @@ export class EstoqueService {
     const params: unknown[] = []
     let idx = 1
 
+    if (dados.sku !== undefined) {
+      const skuNovo = (dados.sku as string).toUpperCase()
+      const conflito = await this.db.queryOne(
+        `SELECT id FROM produtos WHERE "empresaId" = $1 AND sku = $2 AND id <> $3`,
+        [empresaId, skuNovo, id],
+      )
+      if (conflito) throw new ConflictException(`Já existe outro produto com o código "${skuNovo}".`)
+      dados.sku = skuNovo
+    }
+
     const mapa: Record<string, string> = {
-      nome: 'nome', categoria: 'categoria', cor: 'cor',
+      sku: 'sku', nome: 'nome', categoria: 'categoria', cor: 'cor',
       preco: 'preco', custo: 'custo', minimo: 'minimo',
     }
     for (const [key, col] of Object.entries(mapa)) {
