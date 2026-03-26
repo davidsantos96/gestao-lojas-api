@@ -61,7 +61,7 @@ export class QueryProdutosDto {
   @IsOptional() @IsInt() @Min(1)
   page?: number = 1
 
-  @ApiPropertyOptional({ default: 50 })
+  @ApiPropertyOptional({ default: 100 })
   @IsOptional() @IsInt() @Min(1)
-  limit?: number = 50
+  limit?: number = 100
 }

@@ -33,8 +33,8 @@ export class EstoqueService {
       idx++
     }
     if (status === 'out') { conds.push(`p.estoque = 0`) }
-    if (status === 'low') { conds.push(`p.estoque > 0`) }
-    if (status === 'ok')  { conds.push(`p.estoque > 0`) }
+    if (status === 'low') { conds.push(`p.estoque > 0 AND p.estoque <= p.minimo`) }
+    if (status === 'ok')  { conds.push(`p.estoque > p.minimo`) }
 
     const where = conds.join(' AND ')
 
@@ -56,7 +56,7 @@ export class EstoqueService {
       status: this.calcularStatus(p.estoque, p.minimo),
     }))
 
-    return { data, total, page, limit, pages: Math.ceil(total / limit) }
+    return { data, total, exibindo: data.length, page, limit, pages: Math.ceil(total / limit) }
   }
 
   async buscarProduto(empresaId: string, id: string) {
