@@ -22,6 +22,8 @@ BEGIN
   END IF;
 
   -- Vincula apenas o usuário da Flor de Liz (identificado pelo email)
-  UPDATE "usuarios" SET "empresaId" = novo_id WHERE email = 'flordelizbrand@gmail.com';
+  -- Substitua pelo email real antes de aplicar: UPDATE "usuarios" SET "empresaId" = novo_id WHERE email = 'EMAIL_DO_USUARIO';
+  -- Exemplo de como aplicar manualmente no Supabase:
+  -- UPDATE "usuarios" SET "empresaId" = '<uuid-gerado>' WHERE email = 'EMAIL_DO_USUARIO';
 
 END $$;
