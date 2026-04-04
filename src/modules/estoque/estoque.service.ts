@@ -315,10 +315,10 @@ export class EstoqueService {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // KPIs
+  // Helpers
   // ══════════════════════════════════════════════════════════════════════════
 
-  async resumo(empresaId: string) {(estoque: number, minimo: number): 'ok' | 'low' | 'out' {
+  private calcularStatus(estoque: number, minimo: number): 'ok' | 'low' | 'out' {
     if (estoque <= 0)      return 'out'
     if (estoque <= minimo) return 'low'
     return 'ok'
