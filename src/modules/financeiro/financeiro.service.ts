@@ -377,7 +377,34 @@ export class FinanceiroService {
       const d = desMap.get(key) ?? 0
       resultado.push({ mes, receitas: r, despesas: d, lucro: r - d })
     }
-    return resultado
+
+    // Projeção: contas pendentes com vencimento futuro agrupadas por mês
+    const projecaoRaw = await this.db.query<{
+      mes: string; receitas_previstas: string; despesas_previstas: string
+    }>(
+      `SELECT
+         TO_CHAR(DATE_TRUNC('month', vencimento), 'YYYY-MM') AS mes,
+         SUM(CASE WHEN tipo = 'receber' THEN valor ELSE 0 END) AS receitas_previstas,
+         SUM(CASE WHEN tipo = 'pagar'   THEN valor ELSE 0 END) AS despesas_previstas
+       FROM (
+         SELECT vencimento, valor, 'receber' AS tipo FROM contas_receber
+         WHERE "empresaId" = $1 AND status = 'PENDENTE' AND vencimento > NOW()
+         UNION ALL
+         SELECT vencimento, valor, 'pagar' FROM contas_pagar
+         WHERE "empresaId" = $1 AND status = 'PENDENTE' AND vencimento > NOW()
+       ) contas
+       GROUP BY DATE_TRUNC('month', vencimento)
+       ORDER BY mes`,
+      [empresaId],
+    )
+
+    const projecao = projecaoRaw.map(r => ({
+      mes:                r.mes,
+      receitas_previstas: +Number(r.receitas_previstas).toFixed(2),
+      despesas_previstas: +Number(r.despesas_previstas).toFixed(2),
+    }))
+
+    return { historico: resultado, projecao }
   }
 
   // ══════════════════════════════════════════════════════════════════════════

@@ -115,6 +115,7 @@ export interface Lancamento {
   empresaId: string
   usuarioId: string | null
   categoriaId: string | null
+  vendaId: string | null
   tipo: TipoLancamento
   descricao: string
   valor: string
@@ -156,6 +157,7 @@ export interface ItemVenda {
   id: string
   vendaId: string
   produtoId: string
+  nomeProduto: string | null
   quantidade: number
   precoUnitario: string
   desconto: string

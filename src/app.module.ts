@@ -8,6 +8,7 @@ import { AuthModule } from './modules/auth/auth.module'
 import { VendasModule } from './modules/vendas/vendas.module'
 import { ClientesModule } from './modules/clientes/clientes.module'
 import { HealthModule } from './health/health.module'
+import { RelatoriosModule } from './modules/relatorios/relatorios.module'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
 
 @Module({
@@ -23,6 +24,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     VendasModule,
     ClientesModule,
     HealthModule,
+    RelatoriosModule,
   ],
   providers: [
     // Guard JWT aplicado globalmente em todas as rotas

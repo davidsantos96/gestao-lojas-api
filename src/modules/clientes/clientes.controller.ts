@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Res, Req, UseGuards, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Query, Res, Req, UseGuards, HttpStatus } from '@nestjs/common';
 import { ClientesService } from './clientes.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { UpdateClienteDto } from './dto/update-cliente.dto';
@@ -38,6 +38,24 @@ export class ClientesController {
 
       const clientes = await this.clientesService.findAll(empresaId);
       return res.status(HttpStatus.OK).json(clientes);
+    } catch (error) {
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: error.message });
+    }
+  }
+
+  @Get('rfm')
+  @ApiOperation({ summary: 'Análise RFM de clientes — recência, frequência e valor monetário' })
+  async rfm(
+    @Req() req: any,
+    @Query('inicio') inicio: string,
+    @Query('fim') fim: string,
+    @Res() res: any,
+  ) {
+    try {
+      const empresaId = req.empresaId || (req.user && req.user.empresaId);
+      if (!empresaId) return res.status(HttpStatus.UNAUTHORIZED).json({ message: 'Empresa não identificada' });
+      const result = await this.clientesService.getRfm(empresaId, inicio, fim);
+      return res.status(HttpStatus.OK).json(result);
     } catch (error) {
       return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: error.message });
     }

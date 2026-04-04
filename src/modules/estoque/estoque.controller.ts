@@ -88,6 +88,18 @@ export class EstoqueController {
     return this.estoqueService.registrarMovimentacao(empresaId, dto, req.user?.sub)
   }
 
+  // ── ABC ──────────────────────────────────────────────────────────────────
+
+  @Get('abc')
+  @ApiOperation({ summary: 'Classificação ABC de produtos por receita gerada no período' })
+  getAbc(
+    @EmpresaId() empresaId: string,
+    @Query('inicio') inicio: string,
+    @Query('fim') fim: string,
+  ) {
+    return this.estoqueService.getAbc(empresaId, inicio, fim)
+  }
+
   // ── Resumo / KPIs ─────────────────────────────────────────────────────────
 
   @Get('resumo')

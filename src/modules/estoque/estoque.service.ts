@@ -258,10 +258,67 @@ export class EstoqueService {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // HELPERS
+  // ABC
   // ══════════════════════════════════════════════════════════════════════════
 
-  private calcularStatus(estoque: number, minimo: number): 'ok' | 'low' | 'out' {
+  async getAbc(empresaId: string, inicio?: string, fim?: string) {
+    const hoje       = new Date()
+    const dataInicio = inicio ? new Date(inicio) : new Date(hoje.getFullYear() - 1, hoje.getMonth(), hoje.getDate())
+    const dataFim    = fim    ? new Date(fim + 'T23:59:59') : hoje
+
+    const rows = await this.db.query<{ produtoId: string; sku: string; nome: string; receita: string }>(
+      `SELECT iv."produtoId", p.sku, p.nome,
+         SUM(iv.quantidade * iv."precoUnitario") AS receita
+       FROM itens_venda iv
+       JOIN vendas v ON v.id = iv."vendaId"
+       JOIN produtos p ON p.id = iv."produtoId"
+       WHERE v."empresaId" = $1
+         AND v.status = 'CONCLUIDA'
+         AND v."criadoEm" BETWEEN $2 AND $3
+         AND p.ativo = true
+       GROUP BY iv."produtoId", p.sku, p.nome
+       ORDER BY receita DESC`,
+      [empresaId, dataInicio, dataFim],
+    )
+
+    if (!rows.length) {
+      return { data: [], meta: { periodo_real_inicio: null, periodo_real_fim: null, total_produtos: 0 } }
+    }
+
+    const totalReceita = rows.reduce((acc, r) => acc + Number(r.receita), 0)
+    let acumulado = 0
+    const data = rows.map(r => {
+      const receita    = +Number(r.receita).toFixed(2)
+      const percentual = totalReceita > 0 ? +((receita / totalReceita) * 100).toFixed(2) : 0
+      acumulado = +( acumulado + percentual).toFixed(2)
+      const classe: 'A' | 'B' | 'C' = acumulado <= 80 ? 'A' : acumulado <= 95 ? 'B' : 'C'
+      return { produtoId: r.produtoId, sku: r.sku, nome: r.nome, receita, percentual, acumulado, classe }
+    })
+
+    const bounds = await this.db.queryOne<{ inicio: Date | null; fim: Date | null }>(
+      `SELECT MIN(v."criadoEm") AS inicio, MAX(v."criadoEm") AS fim
+       FROM vendas v
+       JOIN itens_venda iv ON iv."vendaId" = v.id
+       WHERE v."empresaId" = $1 AND v.status = 'CONCLUIDA'
+         AND v."criadoEm" BETWEEN $2 AND $3`,
+      [empresaId, dataInicio, dataFim],
+    )
+
+    return {
+      data,
+      meta: {
+        periodo_real_inicio: bounds?.inicio ? new Date(bounds.inicio).toISOString().slice(0, 10) : null,
+        periodo_real_fim:    bounds?.fim    ? new Date(bounds.fim).toISOString().slice(0, 10)    : null,
+        total_produtos: rows.length,
+      },
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // KPIs
+  // ══════════════════════════════════════════════════════════════════════════
+
+  async resumo(empresaId: string) {(estoque: number, minimo: number): 'ok' | 'low' | 'out' {
     if (estoque <= 0)      return 'out'
     if (estoque <= minimo) return 'low'
     return 'ok'

@@ -110,11 +110,11 @@ export class VendasService {
 
       // Lançamento financeiro
       await client.query(
-        `INSERT INTO lancamentos (id, "empresaId", "usuarioId", tipo, descricao, valor, data)
-         VALUES ($1,$2,$3,'RECEITA',$4,$5,$6)`,
+        `INSERT INTO lancamentos (id, "empresaId", "usuarioId", tipo, descricao, valor, data, "vendaId")
+         VALUES ($1,$2,$3,'RECEITA',$4,$5,$6,$7)`,
         [randomUUID(), empresaId, usuarioId ?? null,
          `Venda #${novaVenda.numero}${clienteNome ? ` — ${clienteNome}` : ''}`,
-         totalLiquido, new Date()],
+         totalLiquido, new Date(), vendaId],
       )
 
       // Conta a receber
@@ -237,8 +237,8 @@ export class VendasService {
       await client.query(
         `DELETE FROM lancamentos
          WHERE "empresaId" = $1 AND tipo = 'RECEITA'
-           AND (descricao LIKE $2 OR descricao LIKE $3)`,
-        [empresaId, `Venda #${venda.numero}%`, `Recebimento: Venda #${venda.numero}%`],
+           AND ("vendaId" = $2 OR descricao LIKE $3 OR descricao LIKE $4)`,
+        [empresaId, id, `Venda #${venda.numero}%`, `Recebimento: Venda #${venda.numero}%`],
       )
       await client.query(
         `UPDATE contas_receber SET status = 'CANCELADO'

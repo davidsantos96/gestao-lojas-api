@@ -98,6 +98,89 @@ export class ClientesService {
     }));
   }
 
+  async getRfm(empresaId: string, inicio?: string, fim?: string) {
+    const hoje       = new Date()
+    const dataInicio = inicio ? new Date(inicio) : new Date(hoje.getFullYear() - 1, hoje.getMonth(), hoje.getDate())
+    const dataFim    = fim    ? new Date(fim + 'T23:59:59') : hoje
+
+    const rows = await this.db.query<{
+      clienteId:    string
+      nome:         string
+      ultima_compra: Date
+      frequencia:   number
+      monetario:    string
+    }>(
+      `SELECT v."clienteId", c.nome,
+         MAX(v."criadoEm") AS ultima_compra,
+         COUNT(DISTINCT v.id)::int AS frequencia,
+         SUM(iv.quantidade * iv."precoUnitario") AS monetario
+       FROM vendas v
+       JOIN itens_venda iv ON iv."vendaId" = v.id
+       JOIN clientes c ON c.id = v."clienteId"
+       WHERE v."empresaId" = $1
+         AND v.status = 'CONCLUIDA'
+         AND v."criadoEm" BETWEEN $2 AND $3
+         AND v."clienteId" IS NOT NULL
+       GROUP BY v."clienteId", c.nome`,
+      [empresaId, dataInicio, dataFim],
+    )
+
+    const meta = {
+      periodo_solicitado_inicio: inicio ?? dataInicio.toISOString().slice(0, 10),
+      periodo_solicitado_fim:    fim    ?? dataFim.toISOString().slice(0, 10),
+      periodo_real_inicio:       null as string | null,
+      periodo_real_fim:          null as string | null,
+      total_clientes:            rows.length,
+    }
+
+    if (!rows.length) return { data: [], meta }
+
+    const agora           = new Date()
+    const diasPorCliente  = rows.map(r => Math.floor((agora.getTime() - new Date(r.ultima_compra).getTime()) / 86400000))
+    const freqPorCliente  = rows.map(r => Number(r.frequencia))
+    const monPorCliente   = rows.map(r => Number(r.monetario))
+
+    const sortedR = [...diasPorCliente].sort((a, b) => a - b)
+    const sortedF = [...freqPorCliente].sort((a, b) => a - b)
+    const sortedM = [...monPorCliente].sort((a, b) => a - b)
+    const n       = rows.length
+
+    // higherIsBetter=true → maior valor = melhor rank (F, M)
+    // higherIsBetter=false → menor valor = melhor rank (R = dias desde última compra)
+    const score = (value: number, sorted: number[], higherIsBetter: boolean): number => {
+      const posAsc = sorted.indexOf(value)
+      const rank   = higherIsBetter ? posAsc + 1 : n - posAsc
+      return Math.ceil((rank / n) * 5)
+    }
+
+    const data = rows.map((r, i) => {
+      const dias    = diasPorCliente[i]
+      const freq    = freqPorCliente[i]
+      const mon     = monPorCliente[i]
+      const score_r = score(dias, sortedR, false)
+      const score_f = score(freq, sortedF, true)
+      const score_m = score(mon,  sortedM, true)
+
+      let segmento: string
+      if      (score_r >= 4 && score_f >= 4 && score_m >= 4) segmento = 'Campeão'
+      else if (score_f >= 4 && score_m >= 4)                  segmento = 'Leal'
+      else if (score_r <= 2 && score_f >= 3)                  segmento = 'Em Risco'
+      else if (freq === 1)                                     segmento = 'Novo'
+      else if (score_r <= 2)                                   segmento = 'Dormente'
+      else                                                     segmento = 'Regular'
+
+      return { clienteId: r.clienteId, nome: r.nome, R: dias, F: freq, M: +mon.toFixed(2), score_r, score_f, score_m, segmento, ultima_compra: r.ultima_compra }
+    })
+
+    data.sort((a, b) => (b.score_r + b.score_f + b.score_m) - (a.score_r + a.score_f + a.score_m))
+
+    const timestamps = rows.map(r => new Date(r.ultima_compra).getTime())
+    meta.periodo_real_inicio = new Date(Math.min(...timestamps)).toISOString().slice(0, 10)
+    meta.periodo_real_fim    = new Date(Math.max(...timestamps)).toISOString().slice(0, 10)
+
+    return { data, meta }
+  }
+
   async update(id: string, dto: UpdateClienteDto, empresaId: string) {
     const existe = await this.db.queryOne(
       `SELECT id FROM clientes WHERE id = $1 AND "empresaId" = $2`,
