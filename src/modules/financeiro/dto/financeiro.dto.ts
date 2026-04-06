@@ -19,6 +19,10 @@ export class CreateContaPagarDto {
   @IsDateString()
   vencimento: string
 
+  @ApiPropertyOptional({ example: 3, description: 'Número de parcelas mensais. Quando > 1, cria uma conta por parcela.' })
+  @IsOptional() @IsInt() @Min(1)
+  parcelas?: number
+
   @ApiPropertyOptional({ example: 'clxyz123' })
   @IsOptional() @IsString()
   categoria_id?: string

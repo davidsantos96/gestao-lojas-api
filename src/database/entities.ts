@@ -92,6 +92,9 @@ export interface ContaPagar {
   pagoEm: Date | null
   status: StatusConta
   obs: string | null
+  parcelas: number
+  parcelaNumero: number
+  grupoParcelaId: string | null
   criadoEm: Date
   atualizadoEm: Date
 }

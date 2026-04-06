@@ -36,10 +36,17 @@ export class FinanceiroService {
     const where = conds.join(' AND ')
 
     const [rows, countRow] = await Promise.all([
-      this.db.query<ContaPagar & { categoria_nome: string | null; categoria_cor: string | null }>(
-        `SELECT cp.*, cd.nome AS categoria_nome, cd.cor AS categoria_cor
+      this.db.query<ContaPagar & { categoria_nome: string | null; categoria_cor: string | null; parcelas_pagas: string }>(
+        `SELECT cp.*, cd.nome AS categoria_nome, cd.cor AS categoria_cor,
+                COALESCE(pg.pagas, 0) AS parcelas_pagas
          FROM contas_pagar cp
          LEFT JOIN categorias_despesa cd ON cd.id = cp."categoriaId"
+         LEFT JOIN (
+           SELECT "grupoParcelaId", COUNT(*) FILTER (WHERE status = 'PAGO') AS pagas
+           FROM contas_pagar
+           WHERE "grupoParcelaId" IS NOT NULL
+           GROUP BY "grupoParcelaId"
+         ) pg ON pg."grupoParcelaId" = cp."grupoParcelaId"
          WHERE ${where}
          ORDER BY cp.vencimento ASC
          LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -59,19 +66,67 @@ export class FinanceiroService {
 
   async criarContaPagar(empresaId: string, dto: CreateContaPagarDto) {
     const categoriaId = await this.resolverCategoria(empresaId, dto.categoria_id)
-    const id = randomUUID()
+    const parcelas    = dto.parcelas && dto.parcelas > 1 ? dto.parcelas : 1
 
-    const row = await this.db.queryOne<ContaPagar & { categoria_nome: string | null; categoria_cor: string | null }>(
-      `WITH inserted AS (
-         INSERT INTO contas_pagar (id, "empresaId", descricao, valor, vencimento, "categoriaId", obs, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'PENDENTE') RETURNING *
-       )
-       SELECT i.*, cd.nome AS categoria_nome, cd.cor AS categoria_cor
-       FROM inserted i
-       LEFT JOIN categorias_despesa cd ON cd.id = i."categoriaId"`,
-      [id, empresaId, dto.descricao, dto.valor, new Date(dto.vencimento), categoriaId, dto.obs ?? null],
-    )
-    return this.formatarContaPagar(row)
+    if (parcelas === 1) {
+      const id  = randomUUID()
+      const row = await this.db.queryOne<ContaPagar & { categoria_nome: string | null; categoria_cor: string | null }>(
+        `WITH inserted AS (
+           INSERT INTO contas_pagar
+             (id, "empresaId", descricao, valor, vencimento, "categoriaId", obs, status,
+              "parcelas", "parcelaNumero", "grupoParcelaId")
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'PENDENTE',1,1,NULL) RETURNING *
+         )
+         SELECT i.*, cd.nome AS categoria_nome, cd.cor AS categoria_cor
+         FROM inserted i
+         LEFT JOIN categorias_despesa cd ON cd.id = i."categoriaId"`,
+        [id, empresaId, dto.descricao, dto.valor, new Date(dto.vencimento), categoriaId, dto.obs ?? null],
+      )
+      return this.formatarContaPagar(row)
+    }
+
+    // Parcelamento: distribuir valor em N parcelas mensais
+    const grupoParcelaId = randomUUID()
+    const totalCentavos  = Math.round(dto.valor * 100)
+    const parcelaCentavos = Math.floor(totalCentavos / parcelas)
+    const restoCentavos   = totalCentavos - parcelaCentavos * parcelas
+    const baseDate        = new Date(dto.vencimento)
+
+    const rows = await this.db.transaction(async (client) => {
+      const created: Array<ContaPagar & { categoria_nome: string | null; categoria_cor: string | null }> = []
+
+      for (let i = 1; i <= parcelas; i++) {
+        // Último ajuste para fechar centavos
+        const valorCentavos = parcelaCentavos + (i === parcelas ? restoCentavos : 0)
+        const valorParcela  = +(valorCentavos / 100).toFixed(2)
+
+        // Vencimento: base + (i-1) meses
+        const venc = new Date(baseDate)
+        venc.setMonth(venc.getMonth() + (i - 1))
+
+        const row = await client.query<ContaPagar & { categoria_nome: string | null; categoria_cor: string | null }>(
+          `WITH inserted AS (
+             INSERT INTO contas_pagar
+               (id, "empresaId", descricao, valor, vencimento, "categoriaId", obs, status,
+                "parcelas", "parcelaNumero", "grupoParcelaId")
+             VALUES ($1,$2,$3,$4,$5,$6,$7,'PENDENTE',$8,$9,$10) RETURNING *
+           )
+           SELECT i.*, cd.nome AS categoria_nome, cd.cor AS categoria_cor
+           FROM inserted i
+           LEFT JOIN categorias_despesa cd ON cd.id = i."categoriaId"`,
+          [randomUUID(), empresaId, `${dto.descricao} (${i}/${parcelas})`, valorParcela,
+           venc, categoriaId, dto.obs ?? null, parcelas, i, grupoParcelaId],
+        )
+        created.push(row.rows[0])
+      }
+
+      return created
+    })
+
+    return {
+      parcelas: rows.map(r => this.formatarContaPagar(r)),
+      total:    parcelas,
+    }
   }
 
   async atualizarContaPagar(empresaId: string, id: string, dto: UpdateContaPagarDto) {
@@ -539,15 +594,19 @@ export class FinanceiroService {
     return conta
   }
 
-  private formatarContaPagar(c: ContaPagar & { categoria_nome?: string | null; categoria_cor?: string | null }) {
+  private formatarContaPagar(c: ContaPagar & { categoria_nome?: string | null; categoria_cor?: string | null; parcelas_pagas?: string | number | null }) {
     return {
-      id:         c.id,
-      descricao:  c.descricao,
-      vencimento: c.vencimento instanceof Date ? c.vencimento.toLocaleDateString('pt-BR') : c.vencimento,
-      valor:      Number(c.valor),
-      status:     c.status.toLowerCase(),
-      categoria:  c.categoria_nome ?? null,
-      obs:        c.obs,
+      id:             c.id,
+      descricao:      c.descricao,
+      vencimento:     c.vencimento instanceof Date ? c.vencimento.toLocaleDateString('pt-BR') : c.vencimento,
+      valor:          Number(c.valor),
+      status:         c.status.toLowerCase(),
+      categoria:      c.categoria_nome ?? null,
+      obs:            c.obs,
+      parcelas:       c.parcelas ?? 1,
+      parcelaNumero:  c.parcelaNumero ?? 1,
+      grupoParcelaId: c.grupoParcelaId ?? null,
+      parcelasPagas:  c.parcelas_pagas != null ? Number(c.parcelas_pagas) : null,
     }
   }
 
