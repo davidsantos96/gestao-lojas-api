@@ -32,7 +32,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message = 'Referência inválida: registro relacionado não encontrado.'
 
     } else if (exception instanceof Error) {
-      this.logger.error(exception.message, exception.stack)
+      const pgCode = (exception as any)?.code
+      this.logger.error(
+        `[${pgCode ?? 'ERR'}] ${exception.message}`,
+        exception.stack,
+      )
     }
 
     response.status(status).json({
