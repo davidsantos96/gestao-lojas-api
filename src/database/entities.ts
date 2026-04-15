@@ -119,6 +119,8 @@ export interface Lancamento {
   usuarioId: string | null
   categoriaId: string | null
   vendaId: string | null
+  produtoId: string | null
+  quantidade: number | null
   tipo: TipoLancamento
   descricao: string
   valor: string

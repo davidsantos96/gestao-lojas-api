@@ -3,7 +3,7 @@
 } from '@nestjs/common'
 import { DatabaseService } from '../../database/database.service'
 import {
-  ContaPagar, ContaReceber, Lancamento, CategoriaDespesa, StatusConta, TipoLancamento,
+  ContaPagar, ContaReceber, Lancamento, CategoriaDespesa, StatusConta, TipoLancamento, Produto,
 } from '../../database/entities'
 import {
   CreateContaPagarDto, UpdateContaPagarDto, QueryContasPagarDto,
@@ -305,10 +305,12 @@ export class FinanceiroService {
 
     const where = conds.join(' AND ')
     const [rows, countRow] = await Promise.all([
-      this.db.query<Lancamento & { categoria_nome: string | null; categoria_cor: string | null }>(
-        `SELECT l.*, cd.nome AS categoria_nome, cd.cor AS categoria_cor
+      this.db.query<Lancamento & { categoria_nome: string | null; categoria_cor: string | null; produto_nome: string | null; produto_sku: string | null }>(
+        `SELECT l.*, cd.nome AS categoria_nome, cd.cor AS categoria_cor,
+                p.nome AS produto_nome, p.sku AS produto_sku
          FROM lancamentos l
          LEFT JOIN categorias_despesa cd ON cd.id = l."categoriaId"
+         LEFT JOIN produtos p ON p.id = l."produtoId"
          WHERE ${where} ORDER BY l.data DESC LIMIT $${idx} OFFSET $${idx + 1}`,
         [...params, limit, skip],
       ),
@@ -319,17 +321,7 @@ export class FinanceiroService {
     ])
 
     return {
-      data: rows.map(l => ({
-        id:        l.id,
-        tipo:      l.tipo,
-        descricao: l.descricao,
-        valor:     Number(l.valor),
-        data:      l.data instanceof Date ? l.data.toLocaleDateString('pt-BR') : l.data,
-        categoria: l.categoria_nome ?? null,
-        cor:       l.categoria_cor ?? null,
-        obs:       l.obs,
-        criadoEm:  l.criadoEm,
-      })),
+      data: rows.map(l => this.formatarLancamento(l)),
       total: Number(countRow?.count ?? 0), page, limit,
     }
   }
@@ -338,17 +330,66 @@ export class FinanceiroService {
     const categoriaId = await this.resolverCategoria(empresaId, dto.categoria_id)
     const id = randomUUID()
 
-    const row = await this.db.queryOne<Lancamento & { categoria_nome: string | null }>(
-      `WITH inserted AS (
-         INSERT INTO lancamentos (id, "empresaId", "usuarioId", "categoriaId", tipo, descricao, valor, data, obs)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *
-       )
-       SELECT i.*, cd.nome AS categoria_nome
-       FROM inserted i LEFT JOIN categorias_despesa cd ON cd.id = i."categoriaId"`,
-      [id, empresaId, usuarioId ?? null, categoriaId, dto.tipo, dto.descricao,
-       dto.valor, new Date(dto.data), dto.obs ?? null],
+    // Sem produto vinculado: comportamento original
+    if (!dto.produto_id) {
+      const row = await this.db.queryOne<Lancamento & { categoria_nome: string | null }>(
+        `WITH inserted AS (
+           INSERT INTO lancamentos (id, "empresaId", "usuarioId", "categoriaId", tipo, descricao, valor, data, obs)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *
+         )
+         SELECT i.*, cd.nome AS categoria_nome
+         FROM inserted i LEFT JOIN categorias_despesa cd ON cd.id = i."categoriaId"`,
+        [id, empresaId, usuarioId ?? null, categoriaId, dto.tipo, dto.descricao,
+         dto.valor, new Date(dto.data), dto.obs ?? null],
+      )
+      return this.formatarLancamento(row)
+    }
+
+    // Com produto: valida, desconta estoque e registra tudo em transação
+    const quantidade = dto.quantidade ?? 1
+
+    const produto = await this.db.queryOne<Produto>(
+      `SELECT * FROM produtos WHERE id = $1 AND "empresaId" = $2 AND ativo = true`,
+      [dto.produto_id, empresaId],
     )
-    return { ...row, valor: Number(row.valor) }
+    if (!produto) throw new BadRequestException('Produto não encontrado.')
+    if (produto.estoque < quantidade)
+      throw new BadRequestException(
+        `Estoque insuficiente para "${produto.nome}". Disponível: ${produto.estoque}, solicitado: ${quantidade}.`,
+      )
+
+    const result = await this.db.transaction(async (client) => {
+      const estoqueAntes  = produto.estoque
+      const estoqueDepois = estoqueAntes - quantidade
+
+      const lancRow = await client.query<Lancamento>(
+        `INSERT INTO lancamentos
+           (id, "empresaId", "usuarioId", "categoriaId", tipo, descricao, valor, data, obs, "produtoId", quantidade)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        [id, empresaId, usuarioId ?? null, categoriaId, dto.tipo, dto.descricao,
+         dto.valor, new Date(dto.data), dto.obs ?? null, dto.produto_id, quantidade],
+      )
+
+      await client.query(
+        `UPDATE produtos SET estoque = $1 WHERE id = $2`,
+        [estoqueDepois, dto.produto_id],
+      )
+
+      await client.query(
+        `INSERT INTO movimentacoes_estoque
+           (id, "empresaId", "produtoId", "usuarioId", tipo, quantidade,
+            "estoqueAntes", "estoqueDepois", origem, obs)
+         VALUES ($1,$2,$3,$4,'SAIDA',$5,$6,$7,$8,$9)`,
+        [randomUUID(), empresaId, dto.produto_id, usuarioId ?? null,
+         -quantidade, estoqueAntes, estoqueDepois,
+         'Lançamento financeiro',
+         dto.descricao],
+      )
+
+      return lancRow.rows[0]
+    })
+
+    return this.formatarLancamento({ ...result, categoria_nome: null, produto_nome: produto.nome, produto_sku: produto.sku })
   }
 
   async atualizarLancamento(empresaId: string, id: string, dto: Partial<CreateLancamentoDto>) {
@@ -619,6 +660,24 @@ export class FinanceiroService {
       valor:      Number(c.valor),
       status:     c.status.toLowerCase(),
       obs:        c.obs,
+    }
+  }
+
+  private formatarLancamento(l: Lancamento & { categoria_nome?: string | null; categoria_cor?: string | null; produto_nome?: string | null; produto_sku?: string | null }) {
+    return {
+      id:          l.id,
+      tipo:        l.tipo,
+      descricao:   l.descricao,
+      valor:       Number(l.valor),
+      data:        l.data instanceof Date ? l.data.toLocaleDateString('pt-BR') : l.data,
+      categoria:   l.categoria_nome ?? null,
+      cor:         l.categoria_cor  ?? null,
+      obs:         l.obs,
+      produto_id:  l.produtoId  ?? null,
+      produto:     l.produto_nome ?? null,
+      produto_sku: l.produto_sku  ?? null,
+      quantidade:  l.quantidade  ?? null,
+      criadoEm:    l.criadoEm,
     }
   }
 

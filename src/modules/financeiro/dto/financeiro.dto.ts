@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger'
 import {
   IsString, IsNotEmpty, IsEnum, IsOptional,
-  IsNumber, IsPositive, IsInt, IsDateString, Min,
+  IsNumber, IsPositive, IsInt, IsDateString, Min, ValidateIf,
 } from 'class-validator'
 import { StatusConta, TipoLancamento, StatusContaEnum, TipoLancamentoEnum } from '../../../database/entities'
 
@@ -128,6 +128,15 @@ export class CreateLancamentoDto {
   @ApiPropertyOptional()
   @IsOptional() @IsString()
   obs?: string
+
+  @ApiPropertyOptional({ example: 'clxyz123', description: 'ID do produto do estoque a ser baixado' })
+  @IsOptional() @IsString()
+  produto_id?: string
+
+  @ApiPropertyOptional({ example: 2, description: 'Quantidade a subtrair do estoque. Obrigatório quando produto_id é informado.' })
+  @ValidateIf(o => !!o.produto_id)
+  @IsInt() @Min(1)
+  quantidade?: number
 }
 
 // ─── Filtros Lançamentos ─────────────────────────────────────────────────────
