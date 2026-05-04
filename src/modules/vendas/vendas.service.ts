@@ -110,11 +110,12 @@ export class VendasService {
 
       // Lançamento financeiro
       await client.query(
-        `INSERT INTO lancamentos (id, "empresaId", "usuarioId", tipo, descricao, valor, data, "vendaId")
-         VALUES ($1,$2,$3,'RECEITA',$4,$5,$6,$7)`,
+        `INSERT INTO lancamentos (id, "empresaId", "usuarioId", tipo, descricao, valor, data, "vendaId", "produtoId", "quantidade")
+         VALUES ($1,$2,$3,'RECEITA',$4,$5,$6,$7,$8,$9)`,
         [randomUUID(), empresaId, usuarioId ?? null,
          `Venda #${novaVenda.numero}${clienteNome ? ` — ${clienteNome}` : ''}`,
-         totalLiquido, new Date(), vendaId],
+         totalLiquido, new Date(), vendaId,
+         itensCalc[0].produto_id, itensCalc[0].quantidade],
       )
 
       // Conta a receber
